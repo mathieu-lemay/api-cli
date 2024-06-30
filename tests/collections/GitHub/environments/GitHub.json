@@ -1,0 +1,8 @@
+{
+  "vars": [
+    {
+      "key": "host",
+      "value": "https://api.github.com"
+    }
+  ]
+}

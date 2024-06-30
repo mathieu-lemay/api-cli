@@ -1,0 +1,18 @@
+{
+  "headers": [
+    {
+      "key": "X-GitHub-Api-Version",
+      "value": "2022-11-28"
+    },
+    {
+      "key": "Accept",
+      "value": "application/vnd.github+json"
+    }
+  ],
+  "vars": [
+    {
+      "key": "user",
+      "value": "mathieu-lemay"
+    }
+  ]
+}

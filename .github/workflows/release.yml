@@ -1,0 +1,114 @@
+# References:
+# https://eugene-babichenko.github.io/blog/2020/05/09/github-actions-cross-platform-auto-releases/
+# https://github.com/BurntSushi/ripgrep/blob/master/.github/workflows/release.yml
+# https://github.com/casey/just/blob/master/.github/workflows/release.yaml
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.*"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  create-release:
+    name: Create release
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create-release.outputs.upload_url }}
+    steps:
+      - name: Create release
+        id: create-release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          draft: false
+          prerelease: false
+
+  build-release:
+    name: build-release
+    needs: ['create-release']
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        target:
+          - aarch64-apple-darwin
+          - aarch64-unknown-linux-gnu
+          - armv7-unknown-linux-gnueabihf
+          - x86_64-apple-darwin
+          - x86_64-unknown-linux-gnu
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            target_features: ""
+            target_rustflags: ''
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            target_features: "native-tls-vendored"
+            target_rustflags: '--codegen linker=aarch64-linux-gnu-gcc'
+          - target: armv7-unknown-linux-gnueabihf
+            os: ubuntu-latest
+            target_features: "native-tls-vendored"
+            target_rustflags: '--codegen linker=arm-linux-gnueabihf-gcc'
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            target_features: "native-tls-vendored"
+            target_rustflags: ''
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            target_features: ""
+            target_rustflags: ''
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install latest Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          target: ${{ matrix.target }}
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Install OpenSSL
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install pkg-config libssl-dev
+
+      - name: Install AArch64 Toolchain
+        if: ${{ matrix.target == 'aarch64-unknown-linux-gnu' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install gcc-aarch64-linux-gnu
+
+      - name: Install ARM7 Toolchain
+        if: ${{ matrix.target == 'armv7-unknown-linux-gnueabihf' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install gcc-arm-linux-gnueabihf
+
+      - name: Build binary
+        run: RUSTFLAGS="${RUSTFLAGS} ${{ matrix.target_rustflags }}" cargo build --verbose --release --features=${{ matrix.target_features }} --target=${{ matrix.target }}
+
+      - name: Create tarball
+        run: tar zcf "api-cli.tar.gz" -C "target/${{ matrix.target }}/release" api-cli
+
+      - name: Upload release archive
+        uses: actions/upload-release-asset@v1.0.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_name: api-cli-${{ matrix.target }}.tar.gz
+          asset_path: ./api-cli.tar.gz
+          asset_content_type: application/gzip

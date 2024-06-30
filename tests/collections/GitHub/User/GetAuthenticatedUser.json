@@ -1,0 +1,10 @@
+{
+  "http": {
+    "method": "GET",
+    "url": "{{host}}/user",
+    "auth": {
+      "type": "bearer",
+      "token": "{{authToken}}"
+    }
+  }
+}
