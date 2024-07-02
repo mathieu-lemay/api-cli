@@ -36,15 +36,15 @@ static API_CLI_BASE_DIRECTORY: Lazy<PathBuf> = Lazy::new(|| {
 });
 
 #[derive(Parser)]
-#[command(version)]
+#[clap(author, version, about, long_about = None)]
 struct Cli {
     collection: String,
     request: String,
 
-    #[arg(short, long)]
+    #[arg(short, long, help = "Select an environment for the request")]
     environment: Option<String>,
 
-    #[arg(short, long)]
+    #[arg(short, long, help = "Apply a json-path filter to the response")]
     json_path: Option<String>,
 }
 

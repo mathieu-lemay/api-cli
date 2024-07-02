@@ -1,6 +1,10 @@
 [package]
 name = "api-cli"
 version = "0.1.0"
+description = "Command line API Client inspired by Bruno"
+authors = ["Mathieu Lemay <acidrain1@gmail.com>"]
+repository = "https://github.com/mathieu-lemay/api-cli"
+license = "MIT"
 edition = "2021"
 
 [lib]
