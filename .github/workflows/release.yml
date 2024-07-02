@@ -14,26 +14,24 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  create-release:
-    name: Create release
+  validate-version:
+    name: Validate version
     runs-on: ubuntu-latest
-    outputs:
-      upload_url: ${{ steps.create-release.outputs.upload_url }}
     steps:
-      - name: Create release
-        id: create-release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
-          draft: false
-          prerelease: false
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Ensure package version is same as tag
+        run: |
+          package_version=$(cargo metadata --format-version 1 | jq -r '.packages[] | select(.name == "api-cli") | .version')
+          if [ "refs/tags/v${package_version}" != "${{ github.ref }}" ]; then
+            echo "Package version is not the same as tag: ${package_version} != ${{ github.ref }}"
+            exit 1
+          fi
 
   build-release:
     name: build-release
-    needs: ['create-release']
+    needs: ["validate-version"]
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -47,23 +45,23 @@ jobs:
           - target: aarch64-apple-darwin
             os: macos-latest
             target_features: ""
-            target_rustflags: ''
+            target_rustflags: ""
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
             target_features: "native-tls-vendored"
-            target_rustflags: '--codegen linker=aarch64-linux-gnu-gcc'
+            target_rustflags: "--codegen linker=aarch64-linux-gnu-gcc"
           - target: armv7-unknown-linux-gnueabihf
             os: ubuntu-latest
             target_features: "native-tls-vendored"
-            target_rustflags: '--codegen linker=arm-linux-gnueabihf-gcc'
+            target_rustflags: "--codegen linker=arm-linux-gnueabihf-gcc"
           - target: x86_64-apple-darwin
             os: macos-latest
             target_features: "native-tls-vendored"
-            target_rustflags: ''
+            target_rustflags: ""
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             target_features: ""
-            target_rustflags: ''
+            target_rustflags: ""
 
     steps:
       - name: Checkout
@@ -100,15 +98,17 @@ jobs:
       - name: Build binary
         run: RUSTFLAGS="${RUSTFLAGS} ${{ matrix.target_rustflags }}" cargo build --verbose --release --features=${{ matrix.target_features }} --target=${{ matrix.target }}
 
-      - name: Create tarball
-        run: tar zcf "api-cli.tar.gz" -C "target/${{ matrix.target }}/release" api-cli
+      - name: Create package
+        id: package
+        run: |
+          package="api-cli-${{ matrix.target }}.tar.gz"
+          tar zcf "$package" -C "target/${{ matrix.target }}/release" api-cli
+          echo "package=$package" >> $GITHUB_OUTPUT
 
-      - name: Upload release archive
-        uses: actions/upload-release-asset@v1.0.1
+      - name: Publish package
+        uses: softprops/action-gh-release@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_name: api-cli-${{ matrix.target }}.tar.gz
-          asset_path: ./api-cli.tar.gz
-          asset_content_type: application/gzip
+          draft: false
+          files: ${{ steps.package.outputs.package }}
