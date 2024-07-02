@@ -11,7 +11,7 @@ use serde_json::Value;
 
 use crate::error::Result;
 pub use crate::models::{CollectionModel, EnvironmentModel, RequestModel};
-use crate::models::{HttpAuth, HttpBody};
+use crate::models::{GraphGLBody, HttpAuth, HttpBody};
 
 pub mod error;
 mod models;
@@ -150,6 +150,26 @@ impl ApiClientRequest {
                     let json: Value = serde_json::from_str(&json_str)?;
 
                     req.json(&json)
+                }
+                HttpBody::GraphQL(g) => {
+                    let query = hb.render_template(&g.graphql.query, &variables)?;
+
+                    let variables = {
+                        let mut vars = HashMap::new();
+
+                        for (k, v) in g.graphql.variables.iter() {
+                            let key = hb.render_template(k, &variables)?;
+                            let value = hb.render_template(v, &variables)?;
+
+                            vars.insert(key, value);
+                        }
+
+                        vars
+                    };
+
+                    let payload = GraphGLBody { query, variables };
+
+                    req.json(&payload)
                 }
                 HttpBody::Binary(b) => {
                     let body = hb.render_template(&b.binary, &variables)?;

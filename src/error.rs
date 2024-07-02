@@ -13,6 +13,8 @@ enum ErrorKind {
     ReqwestError,
     #[allow(dead_code)] // Value will show up in the error message
     SerdeJson(Option<OsString>),
+    #[allow(dead_code)] // Value will show up in the error message
+    SerdeYaml(Option<OsString>),
     TemplateRenderError,
 }
 
@@ -33,6 +35,13 @@ impl ApiClientError {
     pub fn from_serde_json_error_with_path(error: serde_json::Error, path: &Path) -> Self {
         Self(Box::new(ErrorImpl {
             kind: ErrorKind::SerdeJson(Some(path.as_os_str().to_owned())),
+            error: Box::new(error),
+        }))
+    }
+
+    pub fn from_serde_yaml_error_with_path(error: serde_yaml::Error, path: &Path) -> Self {
+        Self(Box::new(ErrorImpl {
+            kind: ErrorKind::SerdeYaml(Some(path.as_os_str().to_owned())),
             error: Box::new(error),
         }))
     }

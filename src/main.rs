@@ -55,15 +55,15 @@ struct HeaderRow<'a, S: AsRef<str> + Display> {
 }
 
 fn read_file<T: for<'a> Deserialize<'a>>(path: &Path) -> Result<T> {
-    let data = match fs::read(path) {
+    let data: String = match fs::read_to_string(path) {
         Ok(d) => d,
         Err(e) => {
             return Err(ApiClientError::from_io_error_with_path(e, path));
         }
     };
 
-    serde_json::from_slice::<T>(&data)
-        .map_err(|e| ApiClientError::from_serde_json_error_with_path(e, path))
+    serde_yaml::from_str::<T>(&data)
+        .map_err(|e| ApiClientError::from_serde_yaml_error_with_path(e, path))
 }
 
 #[tokio::main]
@@ -75,7 +75,7 @@ async fn main() -> Result<()> {
     let collection_file = {
         let mut p = PathBuf::from(API_CLI_BASE_DIRECTORY.as_os_str());
         p.push(&cli.collection);
-        p.push("collection.json");
+        p.push("collection.yaml");
 
         p
     };
@@ -85,7 +85,7 @@ async fn main() -> Result<()> {
     let request_file = {
         let mut p = PathBuf::from(API_CLI_BASE_DIRECTORY.as_os_str());
         p.push(&cli.collection);
-        p.push(format!("{}.json", cli.request));
+        p.push(format!("{}.yaml", cli.request));
 
         p
     };
@@ -106,7 +106,7 @@ async fn main() -> Result<()> {
             let mut p = PathBuf::from(API_CLI_BASE_DIRECTORY.as_os_str());
             p.push(&cli.collection);
             p.push("environments");
-            p.push(format!("{}.json", e));
+            p.push(format!("{}.yaml", e));
 
             p
         };

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 #[derive(Default, Debug, Deserialize)]
@@ -148,11 +148,19 @@ pub struct CollectionModel {
     pub(crate) vars: KeyValueList,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct GraphGLBody {
+    pub(crate) query: String,
+    #[serde(default)]
+    pub(crate) variables: HashMap<String, String>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub(crate) enum HttpBody {
     Text(HttpTextBody),
     Json(HttpJsonBody),
+    GraphQL(HttpGraphQLBody),
     Binary(HttpBinaryBody),
     Form(HttpFormBody),
 }
@@ -165,6 +173,11 @@ pub(crate) struct HttpTextBody {
 #[derive(Debug, Deserialize)]
 pub(crate) struct HttpJsonBody {
     pub(crate) json: Value,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct HttpGraphQLBody {
+    pub(crate) graphql: GraphGLBody,
 }
 
 #[derive(Debug, Deserialize)]

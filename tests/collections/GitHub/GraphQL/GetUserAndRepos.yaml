@@ -1,0 +1,45 @@
+http:
+  method: POST
+  url: '{{host}}/graphql'
+  body:
+    type: graphql
+    graphql:
+      query: |
+        query ($login: String!) {
+          user(login: $login) {
+            login
+            name
+            company
+            location
+            followers(first: 10) {
+              nodes {
+                login
+                name
+                company
+                location
+              }
+            }
+            repositories(first: 100) {
+              totalCount
+              totalDiskUsage
+              pageInfo {
+                hasNextPage
+              }
+              nodes {
+                name
+                diskUsage
+                languages(first: 10) {
+                  nodes {
+                    name
+                    color
+                  }
+                }
+              }
+            }
+          }
+        }
+      variables:
+        login: mathieu-lemay
+  auth:
+    type: bearer
+    token: '{{authToken}}'

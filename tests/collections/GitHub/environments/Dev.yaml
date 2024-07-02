@@ -1,0 +1,3 @@
+vars:
+  - key: host
+    value: https://catchall.acidrain.duckdns.org

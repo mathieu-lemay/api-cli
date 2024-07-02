@@ -1,0 +1,14 @@
+http:
+  method: POST
+  url: '{{host}}/user/repos'
+  body:
+    type: json
+    json:
+      name: Test Repo
+      description: Test Repo from API Cli
+      homepage: https://github.com/mathieu-lemay/api-cli
+      private: true
+      is_template: false
+  auth:
+    type: bearer
+    token: '{{authToken}}'

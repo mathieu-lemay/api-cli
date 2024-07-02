@@ -1,0 +1,3 @@
+http:
+  method: GET
+  url: '{{host}}/users/{{user}}'
