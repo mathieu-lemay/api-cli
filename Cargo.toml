@@ -20,6 +20,7 @@ test = false
 ansi-str = "0.8.0"
 base64 = "0.22.1"
 clap = { version = "4.5.7", features = ["derive"] }
+clap_complete = "4.5.7"
 colored_json = "5.0.0"
 dirs = "5.0.1"
 env_logger = "0.11.3"

@@ -3,9 +3,10 @@ use std::fmt::Display;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::{Duration, Instant};
-use std::{env, fs};
+use std::{env, fs, io};
 
-use clap::Parser;
+use clap::{Args, CommandFactory, Parser, Subcommand};
+use clap_complete::{generate, Shell};
 use colored_json::to_colored_json_auto;
 use jsonpath_rust::{find_slice, JsonPathInst};
 use log::debug;
@@ -36,8 +37,23 @@ static API_CLI_BASE_DIRECTORY: Lazy<PathBuf> = Lazy::new(|| {
 });
 
 #[derive(Parser)]
-#[clap(author, version, about, long_about = None)]
+#[command(author, version, about, long_about = None)]
 struct Cli {
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Execute a request
+    Run(RunArgs),
+
+    /// Generate shell completion
+    Completion(CompletionArgs),
+}
+
+#[derive(Args)]
+struct RunArgs {
     collection: String,
     request: String,
 
@@ -46,6 +62,11 @@ struct Cli {
 
     #[arg(short, long, help = "Apply a json-path filter to the response")]
     json_path: Option<String>,
+}
+
+#[derive(Args)]
+struct CompletionArgs {
+    shell: Shell,
 }
 
 #[derive(Tabled)]
@@ -72,9 +93,22 @@ async fn main() -> Result<()> {
 
     let cli = Cli::parse();
 
+    match cli.command {
+        Command::Run(args) => execute_request(args).await?,
+        Command::Completion(args) => {
+            let mut cmd = Cli::command();
+            let name = cmd.get_name().to_string();
+            generate(args.shell, &mut cmd, name, &mut io::stdout());
+        }
+    }
+
+    Ok(())
+}
+
+async fn execute_request(args: RunArgs) -> Result<()> {
     let collection_file = {
         let mut p = PathBuf::from(API_CLI_BASE_DIRECTORY.as_os_str());
-        p.push(&cli.collection);
+        p.push(&args.collection);
         p.push("collection.yaml");
 
         p
@@ -84,8 +118,8 @@ async fn main() -> Result<()> {
 
     let request_file = {
         let mut p = PathBuf::from(API_CLI_BASE_DIRECTORY.as_os_str());
-        p.push(&cli.collection);
-        p.push(format!("{}.yaml", cli.request));
+        p.push(&args.collection);
+        p.push(format!("{}.yaml", args.request));
 
         p
     };
@@ -101,10 +135,10 @@ async fn main() -> Result<()> {
 
     req = req.with_global_variables(global_variables);
 
-    if let Some(e) = cli.environment {
+    if let Some(e) = args.environment {
         let environment_file = {
             let mut p = PathBuf::from(API_CLI_BASE_DIRECTORY.as_os_str());
-            p.push(&cli.collection);
+            p.push(&args.collection);
             p.push("environments");
             p.push(format!("{}.yaml", e));
 
@@ -128,7 +162,7 @@ async fn main() -> Result<()> {
     if let Some(h) = get_formatted_headers(&res) {
         request_results.push(("Headers", h));
     }
-    if let Some(b) = get_formatted_body(res, &cli.json_path).await? {
+    if let Some(b) = get_formatted_body(res, &args.json_path).await? {
         request_results.push(("Body", b));
     }
 
