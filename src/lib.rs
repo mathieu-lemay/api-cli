@@ -124,6 +124,7 @@ impl ApiClientRequest {
 
         if let Some(auth) = self.request.http.auth.or(self.collection.auth) {
             req = match auth {
+                HttpAuth::None => req,
                 HttpAuth::Basic(b) => {
                     let username = hb.render_template(&b.username, &variables)?;
                     let password = Some(hb.render_template(&b.password, &variables)?);
@@ -517,19 +518,25 @@ mod tests {
     }
 
     #[rstest]
+    #[case::none(HttpAuth::None, None)]
     #[case::basic(
         HttpAuth::Basic(HttpBasicAuth{username: "user".to_string(), password: "pass".to_string()}),
-        "Basic dXNlcjpwYXNz",
+        Some("Basic dXNlcjpwYXNz"),
     )]
     #[case::bearer(
         HttpAuth::Bearer(HttpBearerToken{token: "bearer-token".to_string()}),
-        "Bearer bearer-token"
+        Some("Bearer bearer-token"),
     )]
     #[tokio::test]
-    async fn api_client_sends_auth(#[case] auth: HttpAuth, #[case] expected: &str) {
+    async fn api_client_sends_auth(#[case] auth: HttpAuth, #[case] expected: Option<&str>) {
         let test_server = spawn_mock_server().await;
-        Mock::given(matchers::header("Authorization", expected))
-            .respond_with(ResponseTemplate::new(StatusCode::OK))
+
+        let mock = match expected {
+            Some(a) => Mock::given(matchers::header("Authorization", a)),
+            None => Mock::given(HeaderIsMissingMatcher("Authorization".try_into().unwrap())),
+        };
+
+        mock.respond_with(ResponseTemplate::new(StatusCode::OK))
             .expect(1)
             .mount(&test_server.mock)
             .await;

@@ -104,6 +104,7 @@ pub(crate) struct HttpBearerToken {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub(crate) enum HttpAuth {
+    None,
     Basic(HttpBasicAuth),
     Bearer(HttpBearerToken),
 }
