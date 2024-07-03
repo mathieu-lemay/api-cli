@@ -4,7 +4,7 @@ use std::path::Path;
 use std::{error, io};
 
 pub type Result<T> = std::result::Result<T, ApiClientError>;
-pub struct ApiClientError(Box<ErrorImpl>);
+pub struct ApiClientError(ErrorImpl);
 
 #[derive(Debug)]
 enum ErrorKind {
@@ -16,6 +16,29 @@ enum ErrorKind {
     #[allow(dead_code)] // Value will show up in the error message
     SerdeYaml(Option<OsString>),
     TemplateRenderError,
+    CommandError,
+}
+
+#[derive(Debug)]
+pub struct CollectionNotFoundError(String);
+
+impl error::Error for CollectionNotFoundError {}
+
+impl fmt::Display for CollectionNotFoundError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Collection not found: {}", self.0)
+    }
+}
+
+#[derive(Debug)]
+pub struct CollectionAlreadyExistsError(String);
+
+impl error::Error for CollectionAlreadyExistsError {}
+
+impl fmt::Display for CollectionAlreadyExistsError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Collection already exists: {}", self.0)
+    }
 }
 
 #[derive(Debug)]
@@ -25,61 +48,88 @@ pub struct ErrorImpl {
 }
 
 impl ApiClientError {
+    pub fn new_collection_not_found(name: String) -> Self {
+        let e = CollectionNotFoundError(name);
+
+        Self(ErrorImpl {
+            kind: ErrorKind::CommandError,
+            error: Box::new(e),
+        })
+    }
+
+    pub fn new_collection_already_exists(name: String) -> Self {
+        let e = CollectionAlreadyExistsError(name);
+
+        Self(ErrorImpl {
+            kind: ErrorKind::CommandError,
+            error: Box::new(e),
+        })
+    }
+
     pub fn from_io_error_with_path(error: io::Error, path: &Path) -> Self {
-        Self(Box::new(ErrorImpl {
+        Self(ErrorImpl {
             kind: ErrorKind::IoError(Some(path.as_os_str().to_owned())),
             error: Box::new(error),
-        }))
+        })
     }
 
     pub fn from_serde_json_error_with_path(error: serde_json::Error, path: &Path) -> Self {
-        Self(Box::new(ErrorImpl {
+        Self(ErrorImpl {
             kind: ErrorKind::SerdeJson(Some(path.as_os_str().to_owned())),
             error: Box::new(error),
-        }))
+        })
     }
 
     pub fn from_serde_yaml_error_with_path(error: serde_yaml::Error, path: &Path) -> Self {
-        Self(Box::new(ErrorImpl {
+        Self(ErrorImpl {
             kind: ErrorKind::SerdeYaml(Some(path.as_os_str().to_owned())),
             error: Box::new(error),
-        }))
+        })
     }
 }
 
 impl From<io::Error> for ApiClientError {
     fn from(e: io::Error) -> Self {
-        Self(Box::new(ErrorImpl {
+        Self(ErrorImpl {
             kind: ErrorKind::IoError(None),
             error: Box::new(e),
-        }))
+        })
     }
 }
 
 impl From<reqwest::Error> for ApiClientError {
     fn from(e: reqwest::Error) -> Self {
-        Self(Box::new(ErrorImpl {
+        Self(ErrorImpl {
             kind: ErrorKind::ReqwestError,
             error: Box::new(e),
-        }))
+        })
     }
 }
 
 impl From<serde_json::Error> for ApiClientError {
     fn from(e: serde_json::Error) -> Self {
-        Self(Box::new(ErrorImpl {
+        Self(ErrorImpl {
             kind: ErrorKind::SerdeJson(None),
             error: Box::new(e),
-        }))
+        })
+    }
+}
+
+impl From<serde_yaml::Error> for ApiClientError {
+    fn from(e: serde_yaml::Error) -> Self {
+        Self(ErrorImpl {
+            kind: ErrorKind::SerdeYaml(None),
+            error: Box::new(e),
+        })
     }
 }
 
 impl From<handlebars::RenderError> for ApiClientError {
     fn from(e: handlebars::RenderError) -> Self {
-        Self(Box::new(ErrorImpl {
+        Self(ErrorImpl {
             kind: ErrorKind::TemplateRenderError,
             error: Box::new(e),
-        }))
+        })
     }
 }
 

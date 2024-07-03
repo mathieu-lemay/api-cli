@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Default, Debug, Deserialize)]
+#[derive(Default, Debug, Serialize, Deserialize)]
 pub(crate) struct KeyValueList(Vec<KeyValuePair>);
 
 impl KeyValueList {
@@ -70,7 +70,7 @@ struct RequestMetaModel {
     _seq: u32,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct KeyValuePair {
     pub(crate) key: String,
     pub(crate) value: String,
@@ -90,18 +90,18 @@ impl HttpParamsModel {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct HttpBasicAuth {
     pub(crate) username: String,
     pub(crate) password: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct HttpBearerToken {
     pub(crate) token: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub(crate) enum HttpAuth {
     None,
@@ -140,7 +140,7 @@ impl HttpMethod {
     }
 }
 
-#[derive(Default, Debug, Deserialize)]
+#[derive(Default, Debug, Serialize, Deserialize)]
 pub struct CollectionModel {
     #[serde(default)]
     pub(crate) headers: KeyValueList,

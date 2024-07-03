@@ -1,9 +1,8 @@
 use std::collections::HashMap;
+use std::env;
 use std::fmt::Display;
-use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::{Duration, Instant};
-use std::{env, fs};
 
 use colored_json::to_colored_json_auto;
 use jsonpath_rust::{find_slice, JsonPathInst};
@@ -11,17 +10,19 @@ use log::debug;
 use owo_colors::Stream::Stdout;
 use owo_colors::{OwoColorize, Style as OwoStyle};
 use reqwest::Response;
-use serde::Deserialize;
 use serde_json::Value;
 use tabled::settings::object::Rows;
 use tabled::settings::{Disable, Style};
 use tabled::{Table, Tabled};
 use textwrap::{termwidth, Options};
 
-use api_cli::error::{ApiClientError, Result};
+use api_cli::error::Result;
 use api_cli::{ApiClientRequest, CollectionModel, RequestModel};
 
-use crate::commands::{RunArgs, API_CLI_BASE_DIRECTORY};
+use crate::commands::utils::{
+    get_collection_file_path, get_environment_file_path, get_request_file_path, read_file,
+};
+use crate::commands::RunArgs;
 
 #[derive(Tabled)]
 struct HeaderRow<'a, S: AsRef<str> + Display> {
@@ -29,37 +30,13 @@ struct HeaderRow<'a, S: AsRef<str> + Display> {
     pub(crate) value: S,
 }
 
-fn read_file<T: for<'a> Deserialize<'a>>(path: &Path) -> Result<T> {
-    let data: String = match fs::read_to_string(path) {
-        Ok(d) => d,
-        Err(e) => {
-            return Err(ApiClientError::from_io_error_with_path(e, path));
-        }
-    };
-
-    serde_yaml::from_str::<T>(&data)
-        .map_err(|e| ApiClientError::from_serde_yaml_error_with_path(e, path))
-}
-
 pub async fn execute_request(args: RunArgs) -> Result<()> {
-    let collection_file = {
-        let mut p = PathBuf::from(API_CLI_BASE_DIRECTORY.as_os_str());
-        p.push(&args.collection);
-        p.push("collection.yaml");
-
-        p
-    };
-    let collection: CollectionModel = read_file(collection_file.as_path())?;
+    let collection_path = get_collection_file_path(&args.collection);
+    let collection: CollectionModel = read_file(collection_path.as_path())?;
     debug!("Collection: {:#?}", collection);
 
-    let request_file = {
-        let mut p = PathBuf::from(API_CLI_BASE_DIRECTORY.as_os_str());
-        p.push(&args.collection);
-        p.push(format!("{}.yaml", args.request));
-
-        p
-    };
-    let req: RequestModel = read_file(request_file.as_path())?;
+    let request_path = get_request_file_path(&args.collection, &args.request);
+    let req: RequestModel = read_file(request_path.as_path())?;
     debug!("Request: {:#?}", req);
 
     let mut req = ApiClientRequest::new(collection, req);
@@ -72,15 +49,8 @@ pub async fn execute_request(args: RunArgs) -> Result<()> {
     req = req.with_global_variables(global_variables);
 
     if let Some(e) = args.environment {
-        let environment_file = {
-            let mut p = PathBuf::from(API_CLI_BASE_DIRECTORY.as_os_str());
-            p.push(&args.collection);
-            p.push("environments");
-            p.push(format!("{}.yaml", e));
-
-            p
-        };
-        let env = read_file(environment_file.as_path())?;
+        let environment_path = get_environment_file_path(&args.collection, &e);
+        let env = read_file(environment_path.as_path())?;
         debug!("Environment: {:#?}", env);
 
         req = req.with_environment(env);

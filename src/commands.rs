@@ -5,9 +5,13 @@ use clap::{Args, CommandFactory, Parser, Subcommand};
 use clap_complete::{generate, Shell};
 use once_cell::sync::Lazy;
 
+use api_cli::error::Result;
+pub use collection::run_collection_command;
 pub use run::execute_request;
 
+mod collection;
 mod run;
+mod utils;
 
 static APP_NAME: &str = "api-cli";
 
@@ -38,6 +42,10 @@ pub enum Command {
 
     /// Generate shell completion
     Completion(CompletionArgs),
+
+    /// Manage collections
+    #[command(subcommand)]
+    Collection(CollectionCmd),
 }
 
 #[derive(Args)]
@@ -57,8 +65,37 @@ pub struct CompletionArgs {
     pub shell: Shell,
 }
 
-pub fn generate_shell_completion(shell: Shell) {
+#[derive(Subcommand)]
+pub enum CollectionCmd {
+    /// Create a new collection
+    Create(CollectionCreateArgs),
+
+    /// Edit a collection
+    Edit(CollectionEditArgs),
+
+    /// List available collections
+    List,
+}
+
+#[derive(Args)]
+pub struct CollectionCreateArgs {
+    /// Name of the collection to create
+    name: String,
+
+    /// Edit after creating
+    #[arg(short, long)]
+    edit: bool,
+}
+
+#[derive(Args)]
+pub struct CollectionEditArgs {
+    name: String,
+}
+
+pub fn generate_shell_completion(shell: Shell) -> Result<()> {
     let mut cmd = Cli::command();
     let name = cmd.get_name().to_string();
     generate(shell, &mut cmd, name, &mut io::stdout());
+
+    Ok(())
 }
