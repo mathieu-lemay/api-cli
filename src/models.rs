@@ -78,7 +78,7 @@ pub(crate) struct KeyValuePair {
     pub(crate) enabled: Option<bool>,
 }
 
-#[derive(Default, Debug, Deserialize)]
+#[derive(Default, Debug, Serialize, Deserialize)]
 pub(crate) struct HttpParamsModel {
     #[serde(default)]
     pub(crate) query: KeyValueList,
@@ -109,7 +109,7 @@ pub(crate) enum HttpAuth {
     Bearer(HttpBearerToken),
 }
 
-#[derive(Default, Debug, Deserialize)]
+#[derive(Default, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum HttpMethod {
     #[default]
@@ -156,7 +156,7 @@ pub(crate) struct GraphGLBody {
     pub(crate) variables: HashMap<String, String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub(crate) enum HttpBody {
     Text(HttpTextBody),
@@ -166,32 +166,32 @@ pub(crate) enum HttpBody {
     Form(HttpFormBody),
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct HttpTextBody {
     pub(crate) text: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct HttpJsonBody {
     pub(crate) json: Value,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct HttpGraphQLBody {
     pub(crate) graphql: GraphGLBody,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct HttpBinaryBody {
     pub(crate) binary: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct HttpFormBody {
     pub(crate) form: KeyValueList,
 }
 
-#[derive(Default, Debug, Deserialize)]
+#[derive(Default, Debug, Serialize, Deserialize)]
 pub(crate) struct HttpRequestModel {
     pub(crate) method: HttpMethod,
     pub(crate) url: String, // validate len > 0
@@ -204,7 +204,7 @@ pub(crate) struct HttpRequestModel {
     pub(crate) body: Option<HttpBody>,
 }
 
-#[derive(Default, Debug, Deserialize)]
+#[derive(Default, Debug, Serialize, Deserialize)]
 pub(crate) struct RequestVarsModel {
     #[serde(alias = "pre-request", default)]
     pub(crate) pre_request: KeyValueList,
@@ -212,7 +212,7 @@ pub(crate) struct RequestVarsModel {
     pub(crate) _post_request: KeyValueList,
 }
 
-#[derive(Default, Debug, Deserialize)]
+#[derive(Default, Debug, Serialize, Deserialize)]
 pub struct RequestModel {
     // _meta: RequestMetaModel,
     pub(crate) http: HttpRequestModel,

@@ -7,9 +7,11 @@ use once_cell::sync::Lazy;
 
 use api_cli::error::Result;
 pub use collection::run_collection_command;
+pub use request::run_request_command;
 pub use run::execute_request;
 
 mod collection;
+mod request;
 mod run;
 mod utils;
 
@@ -46,6 +48,10 @@ pub enum Command {
     /// Manage collections
     #[command(subcommand)]
     Collection(CollectionCmd),
+
+    /// Manage requests
+    #[command(subcommand)]
+    Request(RequestCmd),
 }
 
 #[derive(Args)]
@@ -89,7 +95,50 @@ pub struct CollectionCreateArgs {
 
 #[derive(Args)]
 pub struct CollectionEditArgs {
+    /// Name of the collection to edit
     name: String,
+}
+
+#[derive(Subcommand)]
+pub enum RequestCmd {
+    /// Create a new request
+    Create(RequestCreateArgs),
+
+    /// Edit a request
+    Edit(RequestEditArgs),
+
+    /// List available request
+    List(RequestListArgs),
+}
+
+#[derive(Args)]
+pub struct RequestCreateArgs {
+    /// Name of the collection in which to create the request
+    #[arg(value_name = "COLLECTION")]
+    collection_name: String,
+
+    /// Name of the request to create
+    name: String,
+
+    /// Edit after creating
+    #[arg(short, long)]
+    edit: bool,
+}
+
+#[derive(Args)]
+pub struct RequestEditArgs {
+    /// Name of the collection
+    #[arg(value_name = "COLLECTION")]
+    collection_name: String,
+
+    /// Name of the request to create
+    name: String,
+}
+
+#[derive(Args)]
+pub struct RequestListArgs {
+    #[arg(value_name = "COLLECTION")]
+    collection_name: String,
 }
 
 pub fn generate_shell_completion(shell: Shell) -> Result<()> {

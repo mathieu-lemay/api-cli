@@ -42,6 +42,28 @@ impl fmt::Display for CollectionAlreadyExistsError {
 }
 
 #[derive(Debug)]
+pub struct RequestNotFoundError(String);
+
+impl error::Error for RequestNotFoundError {}
+
+impl fmt::Display for RequestNotFoundError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Request not found: {}", self.0)
+    }
+}
+
+#[derive(Debug)]
+pub struct RequestAlreadyExistsError(String);
+
+impl error::Error for RequestAlreadyExistsError {}
+
+impl fmt::Display for RequestAlreadyExistsError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Request already exists: {}", self.0)
+    }
+}
+
+#[derive(Debug)]
 pub struct ErrorImpl {
     kind: ErrorKind,
     error: Box<dyn error::Error + Send + Sync>,
@@ -59,6 +81,24 @@ impl ApiClientError {
 
     pub fn new_collection_already_exists(name: String) -> Self {
         let e = CollectionAlreadyExistsError(name);
+
+        Self(ErrorImpl {
+            kind: ErrorKind::CommandError,
+            error: Box::new(e),
+        })
+    }
+
+    pub fn new_request_not_found(name: String) -> Self {
+        let e = RequestNotFoundError(name);
+
+        Self(ErrorImpl {
+            kind: ErrorKind::CommandError,
+            error: Box::new(e),
+        })
+    }
+
+    pub fn new_request_already_exists(name: String) -> Self {
+        let e = RequestAlreadyExistsError(name);
 
         Self(ErrorImpl {
             kind: ErrorKind::CommandError,

@@ -45,7 +45,8 @@ pub fn get_environment_file_path(collection_name: &str, environment_name: &str) 
 pub fn get_request_file_path(collection_name: &str, request_name: &str) -> PathBuf {
     let mut p = PathBuf::from(API_CLI_BASE_DIRECTORY.as_os_str());
     p.push(collection_name);
-    p.push(format!("{}.yaml", request_name));
+    // TODO: Use `:` everywhere
+    p.push(format!("{}.yaml", request_name.replace(':', "/")));
 
     p
 }
