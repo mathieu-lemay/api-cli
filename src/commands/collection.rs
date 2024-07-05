@@ -49,9 +49,19 @@ fn edit_collection(args: CollectionEditArgs) -> Result<()> {
 }
 
 fn list_collections() -> Result<()> {
+    let collection_names = find_collections()?;
+
+    for n in collection_names {
+        println!("{}", n);
+    }
+
+    Ok(())
+}
+
+fn find_collections() -> Result<Vec<String>> {
     let collections_directory = get_collections_directory();
     if !collections_directory.exists() {
-        fs::create_dir_all(&collections_directory)?;
+        return Ok(vec![]);
     }
 
     let mut collection_names = Vec::new();
@@ -83,9 +93,5 @@ fn list_collections() -> Result<()> {
 
     collection_names.sort();
 
-    for n in collection_names {
-        println!("{}", n);
-    }
-
-    Ok(())
+    Ok(collection_names)
 }
