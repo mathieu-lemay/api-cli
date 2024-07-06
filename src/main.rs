@@ -1,9 +1,13 @@
-use clap::Parser;
-
 use api_cli::error::Result;
+use clap::Parser;
 use commands::{
-    execute_request, generate_shell_completion, run_collection_command, run_environment_command,
-    run_request_command, Cli, Command,
+    execute_request,
+    generate_shell_completion,
+    run_collection_command,
+    run_environment_command,
+    run_request_command,
+    Cli,
+    Command,
 };
 
 mod commands;

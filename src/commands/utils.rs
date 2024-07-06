@@ -1,13 +1,11 @@
-use std::env;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
-use std::{fs, path::PathBuf};
-
-use serde::Deserialize;
+use std::{env, fs};
 
 use api_cli::error::{ApiClientError, Result};
+use serde::Deserialize;
 
-use crate::commands::API_CLI_BASE_DIRECTORY;
+use super::API_CLI_BASE_DIRECTORY;
 
 pub fn read_file<T: for<'a> Deserialize<'a>>(path: &Path) -> Result<T> {
     let data: String = match fs::read_to_string(path) {

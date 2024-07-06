@@ -4,10 +4,8 @@ use std::fs::File;
 use api_cli::error::{ApiClientError, Result};
 use api_cli::CollectionModel;
 
-use crate::commands::utils::{
-    get_collection_file_path, get_collections_directory, open_file_in_editor,
-};
-use crate::commands::{CollectionCmd, CollectionCreateArgs, CollectionEditArgs};
+use super::utils::{get_collection_file_path, get_collections_directory, open_file_in_editor};
+use super::{CollectionCmd, CollectionCreateArgs, CollectionEditArgs};
 
 pub fn run_collection_command(cmd: CollectionCmd) -> Result<()> {
     match cmd {

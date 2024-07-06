@@ -1,9 +1,10 @@
-use api_cli::{ApiClientRequest, CollectionModel, RequestModel};
-use reqwest::StatusCode;
-use serde_json::json;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+
+use api_cli::{ApiClientRequest, CollectionModel, RequestModel};
+use reqwest::StatusCode;
+use serde_json::json;
 use uuid::Uuid;
 use wiremock::{matchers, Mock, MockServer, ResponseTemplate};
 

@@ -222,13 +222,23 @@ mod tests {
     use reqwest::StatusCode;
     use rstest::rstest;
     use serde_json::Value;
-    use wiremock::{http, matchers, Match, Request};
-    use wiremock::{Mock, MockServer, ResponseTemplate};
+    use wiremock::{http, matchers, Match, Mock, MockServer, Request, ResponseTemplate};
 
     use crate::models::{
-        HttpAuth, HttpBasicAuth, HttpBearerToken, HttpBinaryBody, HttpBody, HttpFormBody,
-        HttpJsonBody, HttpMethod, HttpParamsModel, HttpRequestModel, HttpTextBody, KeyValueList,
-        KeyValuePair, RequestVarsModel,
+        HttpAuth,
+        HttpBasicAuth,
+        HttpBearerToken,
+        HttpBinaryBody,
+        HttpBody,
+        HttpFormBody,
+        HttpJsonBody,
+        HttpMethod,
+        HttpParamsModel,
+        HttpRequestModel,
+        HttpTextBody,
+        KeyValueList,
+        KeyValuePair,
+        RequestVarsModel,
     };
     use crate::{ApiClientRequest, CollectionModel, RequestModel};
 

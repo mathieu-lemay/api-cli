@@ -5,9 +5,8 @@ use std::path::Path;
 use api_cli::error::{ApiClientError, Result};
 use api_cli::RequestModel;
 
-use crate::commands::{RequestCmd, RequestCreateArgs, RequestEditArgs, RequestListArgs};
-
 use super::utils::{ensure_collection_directory, get_request_file_path, open_file_in_editor};
+use super::{RequestCmd, RequestCreateArgs, RequestEditArgs, RequestListArgs};
 
 pub fn run_request_command(cmd: RequestCmd) -> Result<()> {
     match cmd {

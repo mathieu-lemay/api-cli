@@ -5,12 +5,8 @@ use std::path::PathBuf;
 use api_cli::error::{ApiClientError, Result};
 use api_cli::EnvironmentModel;
 
-use crate::commands::utils::ensure_collection_directory;
-use crate::commands::{
-    EnvironmentCmd, EnvironmentCreateArgs, EnvironmentEditArgs, EnvironmentListArgs,
-};
-
-use super::utils::{get_environment_file_path, open_file_in_editor};
+use super::utils::{ensure_collection_directory, get_environment_file_path, open_file_in_editor};
+use super::{EnvironmentCmd, EnvironmentCreateArgs, EnvironmentEditArgs, EnvironmentListArgs};
 
 pub fn run_environment_command(cmd: EnvironmentCmd) -> Result<()> {
     match cmd {

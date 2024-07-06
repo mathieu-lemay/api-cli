@@ -4,10 +4,10 @@ SHELL        := /usr/bin/env bash
 .NOTPARALLEL :
 
 format:
-	cargo fmt
+	cargo +nightly fmt
 
 lint:
-	cargo fmt -- --check
+	cargo +nightly fmt -- --check
 	cargo clippy --all-targets -- -D warnings
 
 test:

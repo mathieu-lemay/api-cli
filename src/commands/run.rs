@@ -4,6 +4,8 @@ use std::fmt::Display;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 
+use api_cli::error::Result;
+use api_cli::{ApiClientRequest, CollectionModel, RequestModel};
 use colored_json::to_colored_json_auto;
 use jsonpath_rust::{find_slice, JsonPathInst};
 use log::debug;
@@ -16,13 +18,13 @@ use tabled::settings::{Disable, Style};
 use tabled::{Table, Tabled};
 use textwrap::{termwidth, Options};
 
-use api_cli::error::Result;
-use api_cli::{ApiClientRequest, CollectionModel, RequestModel};
-
-use crate::commands::utils::{
-    get_collection_file_path, get_environment_file_path, get_request_file_path, read_file,
+use super::utils::{
+    get_collection_file_path,
+    get_environment_file_path,
+    get_request_file_path,
+    read_file,
 };
-use crate::commands::RunArgs;
+use super::RunArgs;
 
 #[derive(Tabled)]
 struct HeaderRow<'a, S: AsRef<str> + Display> {

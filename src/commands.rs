@@ -1,14 +1,12 @@
 use std::path::PathBuf;
 use std::{env, io};
 
+use api_cli::error::Result;
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use clap_complete::{generate, Shell};
-use once_cell::sync::Lazy;
-
-use api_cli::error::Result;
-
 pub use collection::run_collection_command;
 pub use environment::run_environment_command;
+use once_cell::sync::Lazy;
 pub use request::run_request_command;
 pub use run::execute_request;
 
