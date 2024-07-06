@@ -42,6 +42,28 @@ impl fmt::Display for CollectionAlreadyExistsError {
 }
 
 #[derive(Debug)]
+pub struct EnvironmentNotFoundError(String);
+
+impl error::Error for EnvironmentNotFoundError {}
+
+impl fmt::Display for EnvironmentNotFoundError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Environment not found: {}", self.0)
+    }
+}
+
+#[derive(Debug)]
+pub struct EnvironmentAlreadyExistsError(String);
+
+impl error::Error for EnvironmentAlreadyExistsError {}
+
+impl fmt::Display for EnvironmentAlreadyExistsError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Environment already exists: {}", self.0)
+    }
+}
+
+#[derive(Debug)]
 pub struct RequestNotFoundError(String);
 
 impl error::Error for RequestNotFoundError {}
@@ -81,6 +103,24 @@ impl ApiClientError {
 
     pub fn new_collection_already_exists(name: String) -> Self {
         let e = CollectionAlreadyExistsError(name);
+
+        Self(ErrorImpl {
+            kind: ErrorKind::CommandError,
+            error: Box::new(e),
+        })
+    }
+
+    pub fn new_environment_not_found(name: String) -> Self {
+        let e = EnvironmentNotFoundError(name);
+
+        Self(ErrorImpl {
+            kind: ErrorKind::CommandError,
+            error: Box::new(e),
+        })
+    }
+
+    pub fn new_environment_already_exists(name: String) -> Self {
+        let e = EnvironmentAlreadyExistsError(name);
 
         Self(ErrorImpl {
             kind: ErrorKind::CommandError,

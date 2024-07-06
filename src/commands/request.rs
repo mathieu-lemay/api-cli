@@ -5,10 +5,9 @@ use std::path::Path;
 use api_cli::error::{ApiClientError, Result};
 use api_cli::RequestModel;
 
-use crate::commands::utils::get_collection_file_path;
 use crate::commands::{RequestCmd, RequestCreateArgs, RequestEditArgs, RequestListArgs};
 
-use super::utils::{get_request_file_path, open_file_in_editor};
+use super::utils::{ensure_collection_directory, get_request_file_path, open_file_in_editor};
 
 pub fn run_request_command(cmd: RequestCmd) -> Result<()> {
     match cmd {
@@ -19,6 +18,8 @@ pub fn run_request_command(cmd: RequestCmd) -> Result<()> {
 }
 
 fn create_request(args: RequestCreateArgs) -> Result<()> {
+    ensure_collection_directory(&args.collection_name)?;
+
     let request_path = get_request_file_path(&args.collection_name, &args.name);
 
     if request_path.exists() {
@@ -38,6 +39,8 @@ fn create_request(args: RequestCreateArgs) -> Result<()> {
 }
 
 fn edit_request(args: RequestEditArgs) -> Result<()> {
+    ensure_collection_directory(&args.collection_name)?;
+
     let request_path = get_request_file_path(&args.collection_name, &args.name);
 
     if !request_path.exists() {
@@ -60,19 +63,10 @@ fn list_requests(args: RequestListArgs) -> Result<()> {
 }
 
 fn find_requests(collection_name: String) -> Result<Vec<String>> {
-    let collection_path = get_collection_file_path(&collection_name);
-    if !collection_path.exists() {
-        return Err(ApiClientError::new_collection_not_found(collection_name));
-    }
+    let collection_directory = ensure_collection_directory(&collection_name)?;
 
-    let collection_directory = collection_path.parent().unwrap();
-
-    let mut request_names = Vec::new();
-
-    request_names.extend(find_requests_in_directory(
-        collection_directory,
-        collection_directory,
-    )?);
+    let mut request_names =
+        find_requests_in_directory(&collection_directory, &collection_directory)?;
     request_names.sort();
 
     Ok(request_names)

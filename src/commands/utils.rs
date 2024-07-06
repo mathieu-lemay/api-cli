@@ -58,3 +58,17 @@ pub fn open_file_in_editor(file_path: &PathBuf) -> Result<ExitStatus> {
 
     Ok(status)
 }
+
+/// Get the path to the collection directory if it exists
+pub(super) fn ensure_collection_directory(collection_name: &str) -> Result<PathBuf> {
+    let collection_path = get_collection_file_path(collection_name);
+    if !collection_path.exists() {
+        return Err(ApiClientError::new_collection_not_found(
+            collection_name.to_string(),
+        ));
+    }
+
+    let collection_directory = collection_path.parent().unwrap().to_owned();
+
+    Ok(collection_directory)
+}

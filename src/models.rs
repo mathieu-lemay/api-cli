@@ -49,7 +49,7 @@ impl<'a> KeyValueList {
     }
 }
 
-#[derive(Default, Debug, Deserialize)]
+#[derive(Default, Debug, Serialize, Deserialize)]
 pub struct EnvironmentModel {
     #[serde(default)]
     pub(crate) vars: KeyValueList,
