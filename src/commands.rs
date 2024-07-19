@@ -62,7 +62,7 @@ pub enum Command {
 #[derive(Args)]
 pub struct RunArgs {
     collection: String,
-    request: String,
+    request: Option<String>,
 
     #[arg(short, long, help = "Select an environment for the request")]
     environment: Option<String>,

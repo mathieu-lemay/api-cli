@@ -61,7 +61,7 @@ fn list_requests(args: RequestListArgs) -> Result<()> {
     Ok(())
 }
 
-fn find_requests(collection_name: String) -> Result<Vec<String>> {
+pub(super) fn find_requests(collection_name: String) -> Result<Vec<String>> {
     let collection_directory = ensure_collection_directory(&collection_name)?;
 
     let mut request_names =

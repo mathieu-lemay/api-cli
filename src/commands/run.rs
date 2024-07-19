@@ -18,6 +18,7 @@ use tabled::settings::{Disable, Style};
 use tabled::{Table, Tabled};
 use textwrap::{termwidth, Options};
 
+use super::request::find_requests;
 use super::utils::{
     get_collection_file_path,
     get_environment_file_path,
@@ -32,12 +33,31 @@ struct HeaderRow<'a, S: AsRef<str> + Display> {
     pub(crate) value: S,
 }
 
+fn get_request(args: &RunArgs) -> Result<String> {
+    let request = match &args.request {
+        Some(r) => r.to_string(),
+        None => {
+            let available_requests = find_requests(args.collection.clone())?;
+
+            let results = rust_fzf::select(available_requests, vec![]).expect("Unable to run fzf");
+
+            println!("Results: {:?}", results);
+
+            results.into_iter().next().unwrap()
+        }
+    };
+
+    Ok(request)
+}
+
 pub async fn execute_request(args: RunArgs) -> Result<()> {
+    let request = get_request(&args)?;
+
     let collection_path = get_collection_file_path(&args.collection);
     let collection: CollectionModel = read_file(collection_path.as_path())?;
     debug!("Collection: {:#?}", collection);
 
-    let request_path = get_request_file_path(&args.collection, &args.request);
+    let request_path = get_request_file_path(&args.collection, &request);
     let req: RequestModel = read_file(request_path.as_path())?;
     debug!("Request: {:#?}", req);
 
