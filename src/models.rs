@@ -62,12 +62,9 @@ enum RequestType {
     Http,
 }
 
-#[derive(Default, Debug, Deserialize)]
-struct RequestMetaModel {
-    _name: String,
-    #[serde(alias = "type")]
-    _type_: RequestType,
-    _seq: u32,
+#[derive(Default, Debug, Serialize, Deserialize)]
+pub(crate) struct RequestMetaModel {
+    description: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -214,8 +211,14 @@ pub(crate) struct RequestVarsModel {
 
 #[derive(Default, Debug, Serialize, Deserialize)]
 pub struct RequestModel {
-    // _meta: RequestMetaModel,
+    pub(crate) meta: RequestMetaModel,
     pub(crate) http: HttpRequestModel,
     #[serde(default)]
     pub(crate) vars: RequestVarsModel,
+}
+
+impl RequestModel {
+    pub fn description(&self) -> &Option<String> {
+        &self.meta.description
+    }
 }

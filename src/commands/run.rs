@@ -41,31 +41,34 @@ pub async fn execute_request(args: RunArgs) -> Result<()> {
     let req: RequestModel = read_file(request_path.as_path())?;
     debug!("Request: {:#?}", req);
 
-    let mut req = ApiClientRequest::new(collection, req);
+    let mut api_request = ApiClientRequest::new(collection, req);
 
     let global_variables: HashMap<String, String> = env::vars()
         .filter(|(k, _)| k.starts_with("API_CLI_VAR_"))
         .map(|(k, v)| (k.strip_prefix("API_CLI_VAR_").unwrap().to_string(), v))
         .collect();
 
-    req = req.with_global_variables(global_variables);
+    api_request = api_request.with_global_variables(global_variables);
 
     if let Some(e) = args.environment {
         let environment_path = get_environment_file_path(&args.collection, &e);
         let env = read_file(environment_path.as_path())?;
         debug!("Environment: {:#?}", env);
 
-        req = req.with_environment(env);
+        api_request = api_request.with_environment(env);
     };
 
     let request_start = Instant::now();
-    let res = req.execute().await.expect("error performing request");
+    let res = api_request
+        .execute()
+        .await
+        .expect("error performing request");
     let request_duration = request_start.elapsed();
 
-    let mut request_results = vec![
-        ("Status", get_formatted_status(&res)),
-        ("Latency", get_formatted_latency(request_duration)),
-    ];
+    let mut request_results = Vec::new();
+
+    request_results.push(("Status", get_formatted_status(&res)));
+    request_results.push(("Latency", get_formatted_latency(request_duration)));
 
     if let Some(h) = get_formatted_headers(&res) {
         request_results.push(("Headers", h));
