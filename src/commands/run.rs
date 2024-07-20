@@ -67,11 +67,16 @@ pub async fn execute_request(args: RunArgs) -> Result<()> {
         ("Latency", get_formatted_latency(request_duration)),
     ];
 
-    if let Some(h) = get_formatted_headers(&res) {
-        request_results.push(("Headers", h));
+    if !args.no_headers {
+        if let Some(h) = get_formatted_headers(&res) {
+            request_results.push(("Headers", h));
+        }
     }
-    if let Some(b) = get_formatted_body(res, &args.json_path).await? {
-        request_results.push(("Body", b));
+
+    if !args.headers_only {
+        if let Some(b) = get_formatted_body(res, &args.json_path).await? {
+            request_results.push(("Body", b));
+        }
     }
 
     let mut result_table = Table::new(request_results);
@@ -158,6 +163,10 @@ fn get_formatted_headers(res: &Response) -> Option<String> {
 
 async fn get_formatted_body(res: Response, json_path: &Option<String>) -> Result<Option<String>> {
     let resp_body = res.bytes().await.expect("error reading response body");
+    if resp_body.is_empty() {
+        return Ok(None);
+    }
+
     let width = termwidth() - 16; // Assumes "headers" is the longest in the first col.
 
     if let Ok(v) = serde_json::from_slice::<Value>(&resp_body) {

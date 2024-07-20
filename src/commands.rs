@@ -69,6 +69,12 @@ pub struct RunArgs {
 
     #[arg(short, long, help = "Apply a json-path filter to the response")]
     json_path: Option<String>,
+
+    #[arg(long, help = "Disable display of the headers")]
+    no_headers: bool,
+
+    #[arg(long, help = "Display only the headers of the response")]
+    headers_only: bool,
 }
 
 #[derive(Args)]
