@@ -4,10 +4,11 @@ use std::time::Duration;
 
 use base64::prelude::BASE64_STANDARD;
 use base64::Engine;
+use handlebars::Handlebars;
 use log::{debug, info};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use reqwest::{Request, Response};
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 use crate::error::Result;
 pub use crate::models::{CollectionModel, EnvironmentModel, RequestModel};
@@ -158,9 +159,12 @@ impl ApiClientRequest {
                     let variables = {
                         let mut vars = HashMap::new();
 
-                        for (k, v) in g.graphql.variables.iter() {
-                            let key = hb.render_template(k, &variables)?;
-                            let value = hb.render_template(v, &variables)?;
+                        for (k, v) in g.graphql.variables.into_iter() {
+                            let key = hb.render_template(&k, &variables)?;
+
+                            // let value = serde_json::to_string(v)?;
+                            // let value = hb.render_template(&value, &variables)?;
+                            let value = apply_template(&hb, v, &variables)?;
 
                             vars.insert(key, value);
                         }
@@ -212,25 +216,66 @@ impl ApiClientRequest {
     }
 }
 
+fn apply_template(
+    hb: &Handlebars<'_>,
+    value: Value,
+    variables: &HashMap<&str, &str>,
+) -> Result<Value> {
+    let value = match value {
+        Value::Object(o) => {
+            let m = o
+                .into_iter()
+                .map(|(k, v)| {
+                    let rendered = apply_template(hb, v, variables)?;
+                    Ok((k, rendered))
+                })
+                .collect::<Result<Map<String, Value>>>()?;
+
+            Value::Object(m)
+        }
+        Value::Array(a) => {
+            let arr = a
+                .into_iter()
+                .map(|v| {
+                    let rendered = apply_template(hb, v, variables)?;
+                    Ok(rendered)
+                })
+                .collect::<Result<Vec<Value>>>()?;
+
+            Value::Array(arr)
+        }
+        Value::String(s) => {
+            let s = hb.render_template(&s, &variables)?;
+            Value::String(s)
+        }
+        _ => value,
+    };
+
+    Ok(value)
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::str::FromStr;
 
     use base64::prelude::BASE64_STANDARD;
     use base64::Engine;
     use once_cell::sync::Lazy;
     use reqwest::StatusCode;
     use rstest::rstest;
-    use serde_json::Value;
+    use serde_json::{Map, Number, Value};
     use wiremock::{http, matchers, Match, Mock, MockServer, Request, ResponseTemplate};
 
     use crate::models::{
+        GraphGLBody,
         HttpAuth,
         HttpBasicAuth,
         HttpBearerToken,
         HttpBinaryBody,
         HttpBody,
         HttpFormBody,
+        HttpGraphQLBody,
         HttpJsonBody,
         HttpMethod,
         HttpParamsModel,
@@ -635,6 +680,68 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_client_sends_graphql_body() {
+        let query = r#"
+            query ($user: String!, $filter: Filter!) {
+              user(login: $login) {
+                login
+                name
+                company
+                location
+                repos(filter: $filter) {
+                  nodes {
+                    name
+                  }
+                }
+              }
+            }
+        "#;
+
+        let mut filter = Map::new();
+        filter.insert("language".to_string(), Value::String("python".to_string()));
+        filter.insert(
+            "min_stars".to_string(),
+            Value::Number(Number::from_str("420").expect("unable to parse number")),
+        );
+
+        let mut variables = Map::new();
+        variables.insert("login".to_string(), Value::String("some-name".to_string()));
+        variables.insert("filter".to_string(), Value::Object(filter));
+
+        let mut body = HashMap::new();
+        body.insert("query", Value::String(query.to_string()));
+        body.insert("variables", Value::Object(variables.clone()));
+
+        let test_server = spawn_mock_server().await;
+        Mock::given(matchers::body_json(&body))
+            .and(matchers::header("Content-Type", "application/json"))
+            // TODO: Check len
+            // .and(matchers::header("Content-Length", body.len()))
+            .respond_with(ResponseTemplate::new(StatusCode::OK))
+            .expect(1)
+            .mount(&test_server.mock)
+            .await;
+
+        let request = RequestModel {
+            http: HttpRequestModel {
+                url: test_server.base_url,
+                body: Some(HttpBody::GraphQL(HttpGraphQLBody {
+                    graphql: GraphGLBody {
+                        query: query.to_string(),
+                        variables: variables.into_iter().collect::<HashMap<String, Value>>(),
+                    },
+                })),
+                ..Default::default()
+            },
+            vars: Default::default(),
+        };
+
+        let api_request = ApiClientRequest::new(CollectionModel::default(), request);
+
+        api_request.execute().await.expect("request failed");
+    }
+
+    #[tokio::test]
     async fn test_client_sends_binary_body() {
         let body: Vec<u8> = vec![
             0xa3, 0x2d, 0x30, 0x1f, 0xc9, 0x5f, 0xc1, 0xdf, 0x9f, 0x8e, 0x1d, 0xff, 0x56, 0xb7,
@@ -969,6 +1076,78 @@ mod tests {
                 method: HttpMethod::Get,
                 url: test_server.base_url,
                 body: Some(HttpBody::Json(HttpJsonBody { json: body })),
+                ..Default::default()
+            },
+            vars: RequestVarsModel {
+                pre_request: KeyValueList::from(variables),
+                ..Default::default()
+            },
+        };
+
+        let api_request = ApiClientRequest::new(CollectionModel::default(), request);
+
+        api_request.execute().await.expect("request failed");
+    }
+
+    #[tokio::test]
+    async fn test_client_applies_templating_to_graphql_body() {
+        let key = "some-test-key";
+        let value = "some-test-value";
+
+        let variables = [("key", key), ("value", value)];
+        let expected_body: Value = serde_json::from_str(
+            r#"
+            {
+                "query": "query { resolver { some-test-key } }",
+                "variables": {
+                    "some-test-key": "some-test-value",
+                    "number": 123,
+                    "struct": {
+                        "embed": {
+                            "key": "some-test-key",
+                            "value": "some-test-value"
+                        }
+                    }
+                }
+            }
+        "#,
+        )
+        .unwrap();
+
+        let test_server = spawn_mock_server().await;
+        Mock::given(matchers::body_json(expected_body))
+            .respond_with(ResponseTemplate::new(StatusCode::OK))
+            .expect(1)
+            .mount(&test_server.mock)
+            .await;
+
+        let query = "query { resolver { {{key}} } }";
+        let query_vars: HashMap<String, Value> = serde_json::from_str(
+            r#"
+        {
+            "{{key}}": "{{value}}",
+            "number": 123,
+            "struct": {
+                "embed": {
+                    "key": "{{key}}",
+                    "value": "{{value}}"
+                }
+            }
+        }
+        "#,
+        )
+        .unwrap();
+
+        let request = RequestModel {
+            http: HttpRequestModel {
+                method: HttpMethod::Get,
+                url: test_server.base_url,
+                body: Some(HttpBody::GraphQL(HttpGraphQLBody {
+                    graphql: GraphGLBody {
+                        query: query.to_string(),
+                        variables: query_vars,
+                    },
+                })),
                 ..Default::default()
             },
             vars: RequestVarsModel {

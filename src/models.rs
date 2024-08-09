@@ -153,7 +153,7 @@ pub struct CollectionModel {
 pub(crate) struct GraphGLBody {
     pub(crate) query: String,
     #[serde(default)]
-    pub(crate) variables: HashMap<String, String>,
+    pub(crate) variables: HashMap<String, Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
