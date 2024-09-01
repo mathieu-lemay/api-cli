@@ -6,6 +6,7 @@ use commands::{
     run_collection_command,
     run_environment_command,
     run_request_command,
+    run_shell,
     Cli,
     Command,
 };
@@ -24,5 +25,6 @@ async fn main() -> Result<()> {
         Command::Collection(cmd) => run_collection_command(cmd),
         Command::Environment(cmd) => run_environment_command(cmd),
         Command::Request(cmd) => run_request_command(cmd),
+        Command::Cd => run_shell(),
     }
 }

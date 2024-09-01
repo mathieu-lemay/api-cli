@@ -1,6 +1,7 @@
 use std::ffi::OsString;
 use std::fmt::{self, Debug, Display, Formatter};
 use std::path::Path;
+use std::process::ExitStatus;
 use std::{error, io};
 
 pub type Result<T> = std::result::Result<T, ApiClientError>;
@@ -82,6 +83,17 @@ impl error::Error for RequestAlreadyExistsError {}
 impl fmt::Display for RequestAlreadyExistsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Request already exists: {}", self.0)
+    }
+}
+
+#[derive(Debug)]
+struct ProcessError(ExitStatus);
+
+impl error::Error for ProcessError {}
+
+impl fmt::Display for ProcessError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Command failed with exit code: {:?}", self.0)
     }
 }
 
@@ -209,6 +221,15 @@ impl From<handlebars::RenderError> for ApiClientError {
         Self(ErrorImpl {
             kind: ErrorKind::TemplateRenderError,
             error: Box::new(e),
+        })
+    }
+}
+
+impl From<std::process::ExitStatus> for ApiClientError {
+    fn from(e: std::process::ExitStatus) -> Self {
+        Self(ErrorImpl {
+            kind: ErrorKind::CommandError,
+            error: Box::new(ProcessError(e)),
         })
     }
 }

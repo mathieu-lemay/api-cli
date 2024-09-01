@@ -6,9 +6,11 @@ use clap::{Args, CommandFactory, Parser, Subcommand};
 use clap_complete::{generate, Shell};
 pub use collection::run_collection_command;
 pub use environment::run_environment_command;
+use log::debug;
 use once_cell::sync::Lazy;
 pub use request::run_request_command;
 pub use run::execute_request;
+use utils::get_collections_directory;
 
 mod collection;
 mod environment;
@@ -57,6 +59,9 @@ pub enum Command {
     /// Manage requests
     #[command(subcommand)]
     Request(RequestCmd),
+
+    /// Launch a shell in the collections directory
+    Cd,
 }
 
 #[derive(Args)]
@@ -200,4 +205,22 @@ pub fn generate_shell_completion(shell: Shell) -> Result<()> {
     generate(shell, &mut cmd, name, &mut io::stdout());
 
     Ok(())
+}
+
+pub fn run_shell() -> Result<()> {
+    let shell = env::var("SHELL").unwrap_or("sh".to_string());
+    let base_dir = get_collections_directory();
+
+    debug!("running shell: {}", shell);
+
+    let status = std::process::Command::new(shell)
+        .env("API_CLI_SUBSHELL", "1")
+        .current_dir(base_dir)
+        .status()?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(status.into())
+    }
 }
