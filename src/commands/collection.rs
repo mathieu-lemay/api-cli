@@ -4,7 +4,12 @@ use std::fs::File;
 use api_cli::error::{ApiClientError, Result};
 use api_cli::CollectionModel;
 
-use super::utils::{get_collection_file_path, get_collections_directory, open_file_in_editor};
+use super::utils::{
+    ensure_collection_directory,
+    get_collection_file_path,
+    get_collections_directory,
+    open_file_in_editor,
+};
 use super::{CollectionCmd, CollectionCreateArgs, CollectionEditArgs};
 
 pub fn run_collection_command(cmd: CollectionCmd) -> Result<()> {
@@ -16,32 +21,34 @@ pub fn run_collection_command(cmd: CollectionCmd) -> Result<()> {
 }
 
 fn create_collection(args: CollectionCreateArgs) -> Result<()> {
-    let collection_path = get_collection_file_path(&args.name);
+    let collection_dir_path = ensure_collection_directory(&args.name)?;
+    let collection_file_path = get_collection_file_path(&args.name);
 
-    if collection_path.exists() {
+    if collection_file_path.exists() {
         return Err(ApiClientError::new_collection_already_exists(args.name));
     }
 
-    fs::create_dir_all(collection_path.parent().unwrap())?;
+    fs::create_dir_all(collection_file_path.parent().unwrap())?;
 
-    let writer = File::create(&collection_path)?;
+    let writer = File::create(&collection_file_path)?;
     serde_yaml::to_writer(writer, &CollectionModel::default())?;
 
     if args.edit {
-        open_file_in_editor(&collection_path)?;
+        open_file_in_editor(&collection_dir_path, &collection_file_path)?;
     }
 
     Ok(())
 }
 
 fn edit_collection(args: CollectionEditArgs) -> Result<()> {
-    let collection_path = get_collection_file_path(&args.name);
+    let collection_dir_path = ensure_collection_directory(&args.name)?;
+    let collection_file_path = get_collection_file_path(&args.name);
 
-    if !collection_path.exists() {
+    if !collection_file_path.exists() {
         return Err(ApiClientError::new_collection_not_found(args.name));
     }
 
-    open_file_in_editor(&collection_path)?;
+    open_file_in_editor(&collection_dir_path, &collection_file_path)?;
 
     Ok(())
 }

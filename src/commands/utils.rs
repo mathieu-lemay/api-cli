@@ -49,10 +49,13 @@ pub fn get_request_file_path(collection_name: &str, request_name: &str) -> PathB
     p
 }
 
-pub fn open_file_in_editor(file_path: &PathBuf) -> Result<ExitStatus> {
+pub fn open_file_in_editor(collection_dir: &PathBuf, file_path: &PathBuf) -> Result<ExitStatus> {
     let editor = env::var("EDITOR").unwrap_or("vi".to_string());
 
-    let status = Command::new(editor).args([file_path]).status()?;
+    let status = Command::new(editor)
+        .args([file_path])
+        .current_dir(collection_dir)
+        .status()?;
 
     Ok(status)
 }

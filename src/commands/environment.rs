@@ -17,7 +17,7 @@ pub fn run_environment_command(cmd: EnvironmentCmd) -> Result<()> {
 }
 
 fn create_environment(args: EnvironmentCreateArgs) -> Result<()> {
-    ensure_collection_directory(&args.collection_name)?;
+    let collection_dir = ensure_collection_directory(&args.collection_name)?;
 
     let environment_path = get_environment_file_path(&args.collection_name, &args.name);
 
@@ -31,14 +31,14 @@ fn create_environment(args: EnvironmentCreateArgs) -> Result<()> {
     serde_yaml::to_writer(writer, &EnvironmentModel::default())?;
 
     if args.edit {
-        open_file_in_editor(&environment_path)?;
+        open_file_in_editor(&collection_dir, &environment_path)?;
     }
 
     Ok(())
 }
 
 fn edit_environment(args: EnvironmentEditArgs) -> Result<()> {
-    ensure_collection_directory(&args.collection_name)?;
+    let collection_dir = ensure_collection_directory(&args.collection_name)?;
 
     let environment_path = get_environment_file_path(&args.collection_name, &args.name);
 
@@ -46,7 +46,7 @@ fn edit_environment(args: EnvironmentEditArgs) -> Result<()> {
         return Err(ApiClientError::new_environment_not_found(args.name));
     }
 
-    open_file_in_editor(&environment_path)?;
+    open_file_in_editor(&collection_dir, &environment_path)?;
 
     Ok(())
 }

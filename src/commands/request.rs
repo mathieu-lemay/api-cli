@@ -17,7 +17,7 @@ pub fn run_request_command(cmd: RequestCmd) -> Result<()> {
 }
 
 fn create_request(args: RequestCreateArgs) -> Result<()> {
-    ensure_collection_directory(&args.collection_name)?;
+    let collection_dir = ensure_collection_directory(&args.collection_name)?;
 
     let request_path = get_request_file_path(&args.collection_name, &args.name);
 
@@ -31,14 +31,14 @@ fn create_request(args: RequestCreateArgs) -> Result<()> {
     serde_yaml::to_writer(writer, &RequestModel::default())?;
 
     if args.edit {
-        open_file_in_editor(&request_path)?;
+        open_file_in_editor(&collection_dir, &request_path)?;
     }
 
     Ok(())
 }
 
 fn edit_request(args: RequestEditArgs) -> Result<()> {
-    ensure_collection_directory(&args.collection_name)?;
+    let collection_dir = ensure_collection_directory(&args.collection_name)?;
 
     let request_path = get_request_file_path(&args.collection_name, &args.name);
 
@@ -46,7 +46,7 @@ fn edit_request(args: RequestEditArgs) -> Result<()> {
         return Err(ApiClientError::new_request_not_found(args.name));
     }
 
-    open_file_in_editor(&request_path)?;
+    open_file_in_editor(&collection_dir, &request_path)?;
 
     Ok(())
 }
