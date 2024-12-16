@@ -4,13 +4,13 @@ use std::time::Duration;
 
 use api_cli::error::Result;
 use colored_json::to_colored_json_auto;
-use jsonpath_rust::{find_slice, JsonPathInst};
+use jsonpath_rust::JsonPath;
 use owo_colors::Stream::Stdout;
 use owo_colors::{OwoColorize, Style as OwoStyle};
 use reqwest::Response;
 use serde_json::Value;
 use tabled::settings::object::Rows;
-use tabled::settings::{Disable, Style};
+use tabled::settings::{Remove, Style};
 use tabled::{Table, Tabled};
 use textwrap::{termwidth, Options};
 
@@ -47,7 +47,7 @@ pub(crate) async fn pretty_print(
     let mut result_table = Table::new(request_results);
     result_table
         .with(Style::modern())
-        .with(Disable::row(Rows::first()));
+        .with(Remove::row(Rows::first()));
     println!("{}", result_table);
 
     Ok(())
@@ -119,9 +119,7 @@ fn get_formatted_headers(res: &Response) -> Option<String> {
         .collect();
 
     let mut table = Table::new(values);
-    table
-        .with(Style::modern())
-        .with(Disable::row(Rows::first()));
+    table.with(Style::modern()).with(Remove::row(Rows::first()));
 
     Some(table.to_string())
 }
@@ -138,9 +136,9 @@ async fn get_formatted_body(res: Response, json_path: &Option<String>) -> Result
         let rendered_json = match json_path {
             Some(json_path) => {
                 // TODO: Handle errors
-                let path = JsonPathInst::from_str(json_path).unwrap();
+                let path = JsonPath::from_str(json_path).unwrap();
 
-                find_slice(&path, &v)
+                path.find_slice(&v)
                     .into_iter()
                     .map(|s| to_colored_json_auto(&s.to_data()).expect("error colorizing json"))
                     .collect::<Vec<String>>()
