@@ -1,8 +1,9 @@
+use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 use std::{env, io};
 
 use api_cli::error::Result;
-use clap::{Args, CommandFactory, Parser, Subcommand};
+use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::{generate, Shell};
 pub use collection::run_collection_command;
 pub use environment::run_environment_command;
@@ -14,6 +15,7 @@ use utils::get_collections_directory;
 
 mod collection;
 mod environment;
+mod printer;
 mod request;
 mod run;
 mod utils;
@@ -64,6 +66,23 @@ pub enum Command {
     Cd,
 }
 
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+pub enum OutputFormat {
+    Pretty,
+    Json,
+}
+
+impl Display for OutputFormat {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Pretty => write!(f, "pretty")?,
+            Self::Json => write!(f, "json")?,
+        }
+
+        Ok(())
+    }
+}
+
 #[derive(Args)]
 pub struct RunArgs {
     collection: String,
@@ -80,6 +99,9 @@ pub struct RunArgs {
 
     #[arg(long, help = "Display only the headers of the response")]
     headers_only: bool,
+
+    #[arg(short, long, help = "Output format", default_value_t = OutputFormat::Pretty)]
+    output_format: OutputFormat,
 }
 
 #[derive(Args)]
