@@ -6,7 +6,7 @@ use base64::prelude::BASE64_STANDARD;
 use base64::Engine;
 use handlebars::Handlebars;
 use log::{debug, info};
-use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+use reqwest::header::{self, HeaderMap, HeaderName, HeaderValue};
 use reqwest::{Request, Response};
 use serde_json::{Map, Value};
 
@@ -133,8 +133,14 @@ impl ApiClientRequest {
                     req.basic_auth(username, password)
                 }
                 HttpAuth::Bearer(t) => {
+                    let prefix = match t.prefix {
+                        Some(p) => hb.render_template(&p, &variables)?,
+                        None => String::from("Bearer"),
+                    };
+
                     let token = hb.render_template(&t.token, &variables)?;
-                    req.bearer_auth(token)
+
+                    req.header(header::AUTHORIZATION, format!("{} {}", prefix, token))
                 }
             }
         }

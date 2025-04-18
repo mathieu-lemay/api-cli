@@ -99,6 +99,7 @@ pub(crate) struct HttpBasicAuth {
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct HttpBearerToken {
     pub(crate) token: String,
+    pub(crate) prefix: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
