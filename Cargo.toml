@@ -17,12 +17,12 @@ name = "api-cli"
 test = false
 
 [dependencies]
-ansi-str = "0.8.0"
+ansi-str = "0.9.0"
 base64 = "0.22.1"
 clap = { version = "4.5.7", features = ["derive"] }
 clap_complete = "4.5.7"
 colored_json = "5.0.0"
-dirs = "5.0.1"
+dirs = "6.0.0"
 env_logger = "0.11.3"
 handlebars = "6.0.0"
 jsonpath-rust = "0.7.3"
@@ -33,13 +33,13 @@ reqwest = { version = "0.12.5", features = ["json"] }
 serde = { version = "1.0.203", features = ["derive"] }
 serde_json = "1.0.118"
 serde_yaml = "0.9.34"
-tabled = { version = "0.17.0", features = ["ansi"] }
+tabled = { version = "0.18.0", features = ["ansi"] }
 textwrap = { version = "0.16.1", features = ["terminal_size"] }
 tokio = { version = "1.38.0", features = ["rt-multi-thread", "macros"] }
 uuid = { version = "1.9.1", features = ["v4"] }
 
 [dev-dependencies]
-rstest = "0.23.0"
+rstest = "0.25.0"
 serde_urlencoded = "0.7.1"
 wiremock = "0.6.0"
 
