@@ -100,6 +100,9 @@ pub struct RunArgs {
     #[arg(long, help = "Display only the headers of the response")]
     headers_only: bool,
 
+    #[arg(long, help = "Display only the body of the response")]
+    body_only: bool,
+
     #[arg(short, long, help = "Output format", default_value_t = OutputFormat::Pretty)]
     output_format: OutputFormat,
 }

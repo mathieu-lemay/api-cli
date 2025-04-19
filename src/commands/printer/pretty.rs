@@ -27,12 +27,16 @@ pub(crate) async fn pretty_print(
     response: Response,
     latency: Duration,
 ) -> Result<()> {
-    let mut request_results = vec![
-        ("Status", get_formatted_status(&response)),
-        ("Latency", get_formatted_latency(latency)),
-    ];
+    let mut request_results = Vec::new();
 
-    if !args.no_headers {
+    if !(args.headers_only || args.body_only) {
+        request_results.extend([
+            ("Status", get_formatted_status(&response)),
+            ("Latency", get_formatted_latency(latency)),
+        ])
+    };
+
+    if !(args.no_headers || args.body_only) {
         if let Some(h) = get_formatted_headers(&response) {
             request_results.push(("Headers", h));
         }
