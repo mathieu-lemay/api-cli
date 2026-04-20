@@ -91,6 +91,7 @@ dependencies = [
  "colored_json",
  "dirs",
  "env_logger",
+ "exn",
  "handlebars",
  "jsonpath-rust",
  "log",
@@ -460,6 +461,12 @@ dependencies = [
  "libc",
  "windows-sys 0.61.2",
 ]
+
+[[package]]
+name = "exn"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bad13781b9dd97d4489a74e38bb913254d2877840b0b8dece279193761f1d50f"
 
 [[package]]
 name = "fastrand"

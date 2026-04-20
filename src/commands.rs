@@ -2,11 +2,12 @@ use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 use std::{env, io};
 
-use api_cli::error::Result;
+use api_cli::error::{ApiClientError, Result};
 use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::{generate, Shell};
 pub use collection::run_collection_command;
 pub use environment::run_environment_command;
+use exn::{bail, ResultExt};
 use log::debug;
 use once_cell::sync::Lazy;
 pub use request::run_request_command;
@@ -241,11 +242,15 @@ pub fn run_shell() -> Result<()> {
     let status = std::process::Command::new(shell)
         .env("API_CLI_SUBSHELL", "1")
         .current_dir(base_dir)
-        .status()?;
+        .status()
+        .or_raise(|| "Error starting subshell".into())?;
 
     if status.success() {
         Ok(())
     } else {
-        Err(status.into())
+        bail!(ApiClientError::new(format!(
+            "Subshell exited with status: {}",
+            status
+        )));
     }
 }

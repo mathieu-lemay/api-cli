@@ -3,6 +3,7 @@ use std::fs::File;
 
 use api_cli::error::{ApiClientError, Result};
 use api_cli::CollectionModel;
+use exn::{bail, ensure, ResultExt};
 
 use super::utils::{
     ensure_collection_directory,
@@ -25,13 +26,25 @@ fn create_collection(args: CollectionCreateArgs) -> Result<()> {
     let collection_file_path = get_collection_file_path(&args.name);
 
     if collection_file_path.exists() {
-        return Err(ApiClientError::new_collection_already_exists(args.name));
+        bail!(ApiClientError::new(format!(
+            "Collection already exists: {}",
+            args.name
+        )));
     }
 
-    fs::create_dir_all(collection_file_path.parent().unwrap())?;
+    fs::create_dir_all(collection_file_path.parent().unwrap()).or_raise(|| {
+        format!(
+            "Error creating parent directory: {:?}",
+            collection_file_path
+        )
+        .into()
+    })?;
 
-    let writer = File::create(&collection_file_path)?;
-    serde_yaml::to_writer(writer, &CollectionModel::default())?;
+    let writer = File::create(&collection_file_path).or_raise(|| {
+        format!("Error creating collection file: {:?}", collection_file_path).into()
+    })?;
+    serde_yaml::to_writer(writer, &CollectionModel::default())
+        .or_raise(|| "Error initializing request".into())?;
 
     if args.edit {
         open_file_in_editor(&collection_dir_path, &collection_file_path)?;
@@ -44,9 +57,10 @@ fn edit_collection(args: CollectionEditArgs) -> Result<()> {
     let collection_dir_path = ensure_collection_directory(&args.name)?;
     let collection_file_path = get_collection_file_path(&args.name);
 
-    if !collection_file_path.exists() {
-        return Err(ApiClientError::new_collection_not_found(args.name));
-    }
+    ensure!(
+        collection_file_path.exists(),
+        ApiClientError::new(format!("Invalid collection: {}", args.name))
+    );
 
     open_file_in_editor(&collection_dir_path, &collection_file_path)?;
 
@@ -71,8 +85,10 @@ fn find_collections() -> Result<Vec<String>> {
 
     let mut collection_names = Vec::new();
 
-    for entry in fs::read_dir(collections_directory)? {
-        let entry = entry?;
+    for entry in fs::read_dir(&collections_directory)
+        .or_raise(|| format!("Error reading directory: {:?}", collections_directory).into())?
+    {
+        let entry = entry.or_raise(|| "Invalid directory entry".into())?;
 
         let mut path = entry.path();
 

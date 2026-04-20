@@ -3,6 +3,7 @@ use std::io::stdout;
 use std::time::Duration;
 
 use api_cli::error::Result;
+use exn::ResultExt;
 use reqwest::Response;
 use serde::Serialize;
 
@@ -55,7 +56,7 @@ pub(crate) async fn json_print(response: Response, latency: Duration) -> Result<
         body: body.unwrap_or_else(String::new),
     };
 
-    serde_json::to_writer(stdout(), &data)?;
+    serde_json::to_writer(stdout(), &data).or_raise(|| "Error printing json to console".into())?;
 
     Ok(())
 }

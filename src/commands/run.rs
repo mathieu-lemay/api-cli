@@ -2,8 +2,9 @@ use std::collections::HashMap;
 use std::env;
 use std::time::Instant;
 
-use api_cli::error::Result;
+use api_cli::error::{ApiClientError, Result};
 use api_cli::{ApiClientRequest, CollectionModel, RequestModel};
+use exn::ResultExt;
 use log::debug;
 
 use super::printer::pretty_print;
@@ -19,11 +20,13 @@ use crate::commands::OutputFormat;
 
 pub async fn execute_request(args: RunArgs) -> Result<()> {
     let collection_path = get_collection_file_path(&args.collection);
-    let collection: CollectionModel = read_file(collection_path.as_path())?;
+    let collection: CollectionModel = read_file(collection_path.as_path())
+        .or_raise(|| ApiClientError::from("Error loading collection file"))?;
     debug!("Collection: {:#?}", collection);
 
     let request_path = get_request_file_path(&args.collection, &args.request);
-    let req: RequestModel = read_file(request_path.as_path())?;
+    let req: RequestModel = read_file(request_path.as_path())
+        .or_raise(|| ApiClientError::from("Error loading request file"))?;
     debug!("Request: {:#?}", req);
 
     let mut req = ApiClientRequest::new(collection, req);
@@ -51,4 +54,5 @@ pub async fn execute_request(args: RunArgs) -> Result<()> {
         OutputFormat::Json => json_print(res, request_duration).await,
         OutputFormat::Pretty => pretty_print(&args, res, request_duration).await,
     }
+    .or_raise(|| "Error printing output".into())
 }

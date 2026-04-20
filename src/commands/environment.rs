@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use api_cli::error::{ApiClientError, Result};
 use api_cli::EnvironmentModel;
+use exn::{bail, ensure, ResultExt};
 
 use super::utils::{ensure_collection_directory, get_environment_file_path, open_file_in_editor};
 use super::{EnvironmentCmd, EnvironmentCreateArgs, EnvironmentEditArgs, EnvironmentListArgs};
@@ -22,13 +23,19 @@ fn create_environment(args: EnvironmentCreateArgs) -> Result<()> {
     let environment_path = get_environment_file_path(&args.collection_name, &args.name);
 
     if environment_path.exists() {
-        return Err(ApiClientError::new_environment_already_exists(args.name));
+        bail!(ApiClientError::new(format!(
+            "Environment already exists: {}",
+            args.name
+        )));
     }
 
-    fs::create_dir_all(environment_path.parent().unwrap())?;
+    fs::create_dir_all(environment_path.parent().unwrap())
+        .or_raise(|| format!("Error creating parent directory: {:?}", environment_path).into())?;
 
-    let writer = File::create(&environment_path)?;
-    serde_yaml::to_writer(writer, &EnvironmentModel::default())?;
+    let writer = File::create(&environment_path)
+        .or_raise(|| format!("Error creating environment file: {:?}", environment_path).into())?;
+    serde_yaml::to_writer(writer, &EnvironmentModel::default())
+        .or_raise(|| "Error initializing environment".into())?;
 
     if args.edit {
         open_file_in_editor(&collection_dir, &environment_path)?;
@@ -42,9 +49,10 @@ fn edit_environment(args: EnvironmentEditArgs) -> Result<()> {
 
     let environment_path = get_environment_file_path(&args.collection_name, &args.name);
 
-    if !environment_path.exists() {
-        return Err(ApiClientError::new_environment_not_found(args.name));
-    }
+    ensure!(
+        environment_path.exists(),
+        ApiClientError::new(format!("Invalid environment: {}", args.name))
+    );
 
     open_file_in_editor(&collection_dir, &environment_path)?;
 
@@ -80,8 +88,10 @@ fn find_environments_in_directory(collection_dir: PathBuf) -> Result<Vec<String>
 
     let mut environment_names = Vec::new();
 
-    for entry in fs::read_dir(environments_dir)? {
-        let path = entry?.path();
+    for entry in fs::read_dir(&environments_dir)
+        .or_raise(|| format!("Error reading directory: {:?}", environments_dir).into())?
+    {
+        let path = entry.or_raise(|| "Invalid directory entry".into())?.path();
 
         if path.extension().unwrap_or(OsStr::new("")) != "yaml" {
             continue;

@@ -55,21 +55,6 @@ pub struct EnvironmentModel {
     pub(crate) vars: KeyValueList,
 }
 
-#[derive(Default, Debug, Deserialize)]
-enum RequestType {
-    #[default]
-    #[serde(alias = "http")]
-    Http,
-}
-
-#[derive(Default, Debug, Deserialize)]
-struct RequestMetaModel {
-    _name: String,
-    #[serde(alias = "type")]
-    _type_: RequestType,
-    _seq: u32,
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct KeyValuePair {
     pub(crate) key: String,

@@ -4,6 +4,7 @@ use std::path::Path;
 
 use api_cli::error::{ApiClientError, Result};
 use api_cli::RequestModel;
+use exn::{bail, ensure, ResultExt};
 
 use super::utils::{ensure_collection_directory, get_request_file_path, open_file_in_editor};
 use super::{RequestCmd, RequestCreateArgs, RequestEditArgs, RequestListArgs};
@@ -22,13 +23,19 @@ fn create_request(args: RequestCreateArgs) -> Result<()> {
     let request_path = get_request_file_path(&args.collection_name, &args.name);
 
     if request_path.exists() {
-        return Err(ApiClientError::new_request_already_exists(args.name));
+        bail!(ApiClientError::new(format!(
+            "Request already exists: {}",
+            args.name
+        )));
     }
 
-    fs::create_dir_all(request_path.parent().unwrap())?;
+    fs::create_dir_all(request_path.parent().unwrap())
+        .or_raise(|| format!("Error creating parent directory: {:?}", request_path).into())?;
 
-    let writer = File::create(&request_path)?;
-    serde_yaml::to_writer(writer, &RequestModel::default())?;
+    let writer = File::create(&request_path)
+        .or_raise(|| format!("Error creating request file: {:?}", request_path).into())?;
+    serde_yaml::to_writer(writer, &RequestModel::default())
+        .or_raise(|| "Error initializing request".into())?;
 
     if args.edit {
         open_file_in_editor(&collection_dir, &request_path)?;
@@ -42,9 +49,10 @@ fn edit_request(args: RequestEditArgs) -> Result<()> {
 
     let request_path = get_request_file_path(&args.collection_name, &args.name);
 
-    if !request_path.exists() {
-        return Err(ApiClientError::new_request_not_found(args.name));
-    }
+    ensure!(
+        request_path.exists(),
+        ApiClientError::new(format!("Invalid request: {}", args.name))
+    );
 
     open_file_in_editor(&collection_dir, &request_path)?;
 
@@ -74,10 +82,13 @@ fn find_requests(collection_name: String) -> Result<Vec<String>> {
 fn find_requests_in_directory(collection_dir: &Path, dir: &Path) -> Result<Vec<String>> {
     let mut request_names = Vec::new();
 
-    for entry in fs::read_dir(dir)? {
-        let path = entry?.path();
+    for entry in
+        fs::read_dir(dir).or_raise(|| format!("Error reading directory: {:?}", dir).into())?
+    {
+        let path = entry.or_raise(|| "Invalid directory entry".into())?.path();
 
-        // TODO: Put collection def somewhere else, or put requests in their own subfolder
+        // TODO: Put collection def somewhere else, or put requests in their own
+        // subfolder
         let name = path.file_name().unwrap();
         if name == "collection.yaml" || name == "environments" {
             continue;

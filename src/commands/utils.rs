@@ -3,20 +3,18 @@ use std::process::{Command, ExitStatus};
 use std::{env, fs};
 
 use api_cli::error::{ApiClientError, Result};
+use exn::{ensure, ResultExt};
+use log::debug;
 use serde::Deserialize;
 
 use super::API_CLI_BASE_DIRECTORY;
 
-pub fn read_file<T: for<'a> Deserialize<'a>>(path: &Path) -> Result<T> {
-    let data: String = match fs::read_to_string(path) {
-        Ok(d) => d,
-        Err(e) => {
-            return Err(ApiClientError::from_io_error_with_path(e, path));
-        }
-    };
+pub fn read_file<T: for<'a> Deserialize<'a>>(path: &Path) -> exn::Result<T, ApiClientError> {
+    let data: String = fs::read_to_string(path)
+        .or_raise(|| ApiClientError::new(format!("unable to open file: {:?}", path)))?;
 
     serde_yaml::from_str::<T>(&data)
-        .map_err(|e| ApiClientError::from_serde_yaml_error_with_path(e, path))
+        .or_raise(|| ApiClientError::new(format!("file is not valid yaml: {:?}", path)))
 }
 
 pub fn get_collections_directory() -> PathBuf {
@@ -52,10 +50,13 @@ pub fn get_request_file_path(collection_name: &str, request_name: &str) -> PathB
 pub fn open_file_in_editor(collection_dir: &PathBuf, file_path: &PathBuf) -> Result<ExitStatus> {
     let editor = env::var("EDITOR").unwrap_or("vi".to_string());
 
+    debug!("Opening file {:?} in {}", file_path, editor);
+
     let status = Command::new(editor)
         .args([file_path])
         .current_dir(collection_dir)
-        .status()?;
+        .status()
+        .or_raise(|| "Error starting editor".into())?;
 
     Ok(status)
 }
@@ -63,11 +64,11 @@ pub fn open_file_in_editor(collection_dir: &PathBuf, file_path: &PathBuf) -> Res
 /// Get the path to the collection directory if it exists
 pub(super) fn ensure_collection_directory(collection_name: &str) -> Result<PathBuf> {
     let collection_path = get_collection_file_path(collection_name);
-    if !collection_path.exists() {
-        return Err(ApiClientError::new_collection_not_found(
-            collection_name.to_string(),
-        ));
-    }
+
+    ensure!(
+        collection_path.exists(),
+        ApiClientError::new(format!("Collection not found: {}", collection_name))
+    );
 
     let collection_directory = collection_path.parent().unwrap().to_owned();
 

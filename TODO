@@ -1,2 +1,12 @@
 * Add json path at the request level, can be overridden in the cli
-* Add samples + integration tests
+* Store responses to file for history
+* Cli Commands
+    * cd -> goes in the collections folder
+    * environment
+        * create -> create a new environment
+        * edit -> edit an environment
+        * list -> list environments
+    * request
+        * create -> create a new request
+        * edit -> edit a request
+        * list -> list requests

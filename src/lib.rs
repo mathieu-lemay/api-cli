@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use base64::prelude::BASE64_STANDARD;
 use base64::Engine;
+use exn::ResultExt;
 use handlebars::Handlebars;
 use log::{debug, info};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
@@ -84,7 +85,9 @@ impl ApiClientRequest {
 
         debug!("Request variables: {:#?}", variables);
 
-        let url = hb.render_template(&self.request.http.url, &variables)?;
+        let url = hb
+            .render_template(&self.request.http.url, &variables)
+            .or_raise(|| "Error rendering template".into())?;
 
         let method =
             reqwest::Method::from_str(self.request.http.method.as_str()).expect("invalid method");
@@ -94,8 +97,12 @@ impl ApiClientRequest {
             let mut h = HeaderMap::new();
 
             for i in self.collection.headers.items() {
-                let key = hb.render_template(&i.key, &variables)?;
-                let val = hb.render_template(&i.value, &variables)?;
+                let key = hb
+                    .render_template(&i.key, &variables)
+                    .or_raise(|| "Error rendering template".into())?;
+                let val = hb
+                    .render_template(&i.value, &variables)
+                    .or_raise(|| "Error rendering template".into())?;
 
                 // TODO: Handle error
                 h.insert(
@@ -105,8 +112,12 @@ impl ApiClientRequest {
             }
 
             for i in self.request.http.headers.items() {
-                let key = hb.render_template(&i.key, &variables)?;
-                let val = hb.render_template(&i.value, &variables)?;
+                let key = hb
+                    .render_template(&i.key, &variables)
+                    .or_raise(|| "Error rendering template".into())?;
+                let val = hb
+                    .render_template(&i.value, &variables)
+                    .or_raise(|| "Error rendering template".into())?;
 
                 // TODO: Handle error
                 h.insert(
@@ -127,13 +138,20 @@ impl ApiClientRequest {
             req = match auth {
                 HttpAuth::None => req,
                 HttpAuth::Basic(b) => {
-                    let username = hb.render_template(&b.username, &variables)?;
-                    let password = Some(hb.render_template(&b.password, &variables)?);
+                    let username = hb
+                        .render_template(&b.username, &variables)
+                        .or_raise(|| "Error rendering template".into())?;
+                    let password = Some(
+                        hb.render_template(&b.password, &variables)
+                            .or_raise(|| "Error rendering template".into())?,
+                    );
 
                     req.basic_auth(username, password)
                 }
                 HttpAuth::Bearer(t) => {
-                    let token = hb.render_template(&t.token, &variables)?;
+                    let token = hb
+                        .render_template(&t.token, &variables)
+                        .or_raise(|| "Error rendering template".into())?;
                     req.bearer_auth(token)
                 }
             }
@@ -142,25 +160,35 @@ impl ApiClientRequest {
         if let Some(body) = self.request.http.body {
             req = match body {
                 HttpBody::Text(t) => {
-                    let text = hb.render_template(&t.text, &variables)?;
+                    let text = hb
+                        .render_template(&t.text, &variables)
+                        .or_raise(|| "Error rendering template".into())?;
                     req.header("Content-Type", "text/plain").body(text)
                 }
                 HttpBody::Json(j) => {
                     // TODO: Find a better way than re/deserializing.
-                    let json_str = serde_json::to_string(&j.json)?;
-                    let json_str = hb.render_template(&json_str, &variables)?;
-                    let json: Value = serde_json::from_str(&json_str)?;
+                    let json_str = serde_json::to_string(&j.json)
+                        .or_raise(|| "Error serializing json".into())?;
+                    let json_str = hb
+                        .render_template(&json_str, &variables)
+                        .or_raise(|| "Error rendering template".into())?;
+                    let json: Value = serde_json::from_str(&json_str)
+                        .or_raise(|| "Error deserializing json".into())?;
 
                     req.json(&json)
                 }
                 HttpBody::GraphQL(g) => {
-                    let query = hb.render_template(&g.graphql.query, &variables)?;
+                    let query = hb
+                        .render_template(&g.graphql.query, &variables)
+                        .or_raise(|| "Error rendering template".into())?;
 
                     let variables = {
                         let mut vars = HashMap::new();
 
                         for (k, v) in g.graphql.variables.into_iter() {
-                            let key = hb.render_template(&k, &variables)?;
+                            let key = hb
+                                .render_template(&k, &variables)
+                                .or_raise(|| "Error rendering template".into())?;
 
                             // let value = serde_json::to_string(v)?;
                             // let value = hb.render_template(&value, &variables)?;
@@ -177,7 +205,9 @@ impl ApiClientRequest {
                     req.json(&payload)
                 }
                 HttpBody::Binary(b) => {
-                    let body = hb.render_template(&b.binary, &variables)?;
+                    let body = hb
+                        .render_template(&b.binary, &variables)
+                        .or_raise(|| "Error rendering template".into())?;
 
                     // TODO Manage Error
                     req.header("Content-Type", "application/x-www-form-urlencoded")
@@ -187,8 +217,10 @@ impl ApiClientRequest {
                     let mut form = HashMap::new();
                     for i in f.form.items() {
                         form.insert(
-                            hb.render_template(&i.key, &variables)?,
-                            hb.render_template(&i.value, &variables)?,
+                            hb.render_template(&i.key, &variables)
+                                .or_raise(|| "Error rendering template".into())?,
+                            hb.render_template(&i.value, &variables)
+                                .or_raise(|| "Error rendering template".into())?,
                         );
                     }
 
@@ -199,7 +231,7 @@ impl ApiClientRequest {
 
         req = req.timeout(Duration::from_secs(60));
 
-        Ok(req.build()?)
+        req.build().or_raise(|| "Error building request".into())
     }
 
     pub async fn execute(self) -> Result<Response> {
@@ -209,8 +241,12 @@ impl ApiClientRequest {
 
         let client = reqwest::Client::builder()
             .user_agent(APP_USER_AGENT)
-            .build()?;
-        let resp = client.execute(request).await?;
+            .build()
+            .or_raise(|| "Error building reqwest client".into())?;
+        let resp = client
+            .execute(request)
+            .await
+            .or_raise(|| "Error executing request".into())?;
 
         Ok(resp)
     }
@@ -245,7 +281,9 @@ fn apply_template(
             Value::Array(arr)
         }
         Value::String(s) => {
-            let s = hb.render_template(&s, &variables)?;
+            let s = hb
+                .render_template(&s, &variables)
+                .or_raise(|| "Error rendering template".into())?;
             Value::String(s)
         }
         _ => value,
