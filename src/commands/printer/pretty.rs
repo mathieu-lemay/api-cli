@@ -1,8 +1,9 @@
 use std::fmt::Display;
 use std::time::Duration;
 
-use api_cli::error::Result;
+use api_cli::error::{ApiClientError, Result};
 use colored_json::to_colored_json_auto;
+use exn::ResultExt;
 use jsonpath_rust::JsonPath;
 use owo_colors::Stream::Stdout;
 use owo_colors::{OwoColorize, Style as OwoStyle};
@@ -138,9 +139,11 @@ async fn get_formatted_body(res: Response, json_path: &Option<String>) -> Result
     if let Ok(v) = serde_json::from_slice::<Value>(&resp_body) {
         let rendered_json = match json_path {
             Some(json_path) => {
-                // TODO: Handle errors
-                v.query_with_path(json_path)
-                    .unwrap()
+                let filtered = v
+                    .query_with_path(json_path)
+                    .or_raise(|| ApiClientError::from("invalid json path query"))?;
+
+                filtered
                     .into_iter()
                     .map(|s| to_colored_json_auto(&s.val()).expect("error colorizing json"))
                     .collect::<Vec<String>>()
