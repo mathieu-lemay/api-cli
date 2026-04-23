@@ -1,5 +1,4 @@
 use std::fmt::Display;
-use std::str::FromStr;
 use std::time::Duration;
 
 use api_cli::error::Result;
@@ -140,11 +139,10 @@ async fn get_formatted_body(res: Response, json_path: &Option<String>) -> Result
         let rendered_json = match json_path {
             Some(json_path) => {
                 // TODO: Handle errors
-                let path = JsonPath::from_str(json_path).unwrap();
-
-                path.find_slice(&v)
+                v.query_with_path(json_path)
+                    .unwrap()
                     .into_iter()
-                    .map(|s| to_colored_json_auto(&s.to_data()).expect("error colorizing json"))
+                    .map(|s| to_colored_json_auto(&s.val()).expect("error colorizing json"))
                     .collect::<Vec<String>>()
                     .join("\n")
             }
