@@ -2,9 +2,11 @@ use std::collections::HashMap;
 use std::fmt;
 use std::marker::PhantomData;
 use std::str::FromStr;
-use serde::{de, Deserialize, Deserializer, Serialize};
+
 use serde::de::{MapAccess, Visitor};
+use serde::{de, Deserialize, Deserializer, Serialize};
 use serde_json::Value;
+
 use crate::error::ApiClientError;
 
 #[derive(Default, Debug, Serialize, Deserialize)]
@@ -106,7 +108,10 @@ impl FromStr for HttpAuth {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "inherit" => Ok(HttpAuth::Inherit),
-            _ => Err(ApiClientError::from(format!("Invalid http auth type: {}", s))),
+            _ => Err(ApiClientError::from(format!(
+                "Invalid http auth type: {}",
+                s
+            ))),
         }
     }
 }

@@ -10,14 +10,15 @@ use log::{debug, info};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use reqwest::{Request, Response};
 use serde_json::{Map, Value};
+
 use crate::auth::{get_auth, Auth};
 use crate::error::Result;
 pub use crate::models::{CollectionModel, EnvironmentModel, RequestModel};
 use crate::models::{GraphQLBody, HttpAuth, HttpBody};
 
+mod auth;
 pub mod error;
 mod models;
-mod auth;
 
 static APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),);
 
@@ -135,10 +136,11 @@ impl ApiClientRequest {
             .headers(headers)
             .query(&self.request.http.params.get_query_params());
 
-        let auth = get_auth(&self.request.http.auth, &self.collection.request.auth).or_raise(|| "Error getting request auth".into())?;
+        let auth = get_auth(&self.request.http.auth, &self.collection.request.auth)
+            .or_raise(|| "Error getting request auth".into())?;
         req = match auth {
             Auth::None => req,
-            Auth::Basic{username, password} => {
+            Auth::Basic { username, password } => {
                 let username = hb
                     .render_template(&username, &variables)
                     .or_raise(|| "Error rendering template".into())?;
@@ -149,7 +151,7 @@ impl ApiClientRequest {
 
                 req.basic_auth(username, password)
             }
-            Auth::Bearer{token} => {
+            Auth::Bearer { token } => {
                 let token = hb
                     .render_template(&token, &variables)
                     .or_raise(|| "Error rendering template".into())?;
@@ -303,7 +305,8 @@ fn apply_template(
 //     use reqwest::StatusCode;
 //     use rstest::rstest;
 //     use serde_json::{Map, Number, Value};
-//     use wiremock::{http, matchers, Match, Mock, MockServer, Request, ResponseTemplate};
+//     use wiremock::{http, matchers, Match, Mock, MockServer, Request,
+// ResponseTemplate};
 //
 //     use crate::models::{
 //         GraphQLBody,
@@ -357,8 +360,8 @@ fn apply_template(
 //
 //     impl Match for FormDataMatcher {
 //         fn matches(&self, request: &Request) -> bool {
-//             let values: HashMap<String, String> = match serde_urlencoded::from_bytes(&request.body)
-//             {
+//             let values: HashMap<String, String> = match
+// serde_urlencoded::from_bytes(&request.body)             {
 //                 Ok(v) => v,
 //                 Err(_) => return false,
 //             };
@@ -385,7 +388,8 @@ fn apply_template(
 //             vars: Default::default(),
 //         };
 //
-//         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
+//         let api_request = ApiClientRequest::new(CollectionModel::default(),
+// request);
 //
 //         api_request.execute().await.expect("request failed");
 //     }
@@ -410,7 +414,8 @@ fn apply_template(
 //             vars: Default::default(),
 //         };
 //
-//         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
+//         let api_request = ApiClientRequest::new(CollectionModel::default(),
+// request);
 //
 //         api_request.execute().await.expect("request failed");
 //     }
@@ -437,7 +442,8 @@ fn apply_template(
 //             vars: Default::default(),
 //         };
 //
-//         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
+//         let api_request = ApiClientRequest::new(CollectionModel::default(),
+// request);
 //
 //         api_request.execute().await.expect("request failed");
 //     }
@@ -472,7 +478,8 @@ fn apply_template(
 //             vars: Default::default(),
 //         };
 //
-//         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
+//         let api_request = ApiClientRequest::new(CollectionModel::default(),
+// request);
 //
 //         api_request.execute().await.expect("request failed");
 //     }
@@ -519,7 +526,8 @@ fn apply_template(
 //             vars: Default::default(),
 //         };
 //
-//         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
+//         let api_request = ApiClientRequest::new(CollectionModel::default(),
+// request);
 //
 //         api_request.execute().await.expect("request failed");
 //     }
@@ -556,7 +564,8 @@ fn apply_template(
 //             vars: Default::default(),
 //         };
 //
-//         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
+//         let api_request = ApiClientRequest::new(CollectionModel::default(),
+// request);
 //
 //         api_request.execute().await.expect("request failed");
 //     }
@@ -605,7 +614,8 @@ fn apply_template(
 //             vars: Default::default(),
 //         };
 //
-//         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
+//         let api_request = ApiClientRequest::new(CollectionModel::default(),
+// request);
 //
 //         api_request.execute().await.expect("request failed");
 //     }
@@ -613,20 +623,21 @@ fn apply_template(
 //     #[rstest]
 //     #[case::none(HttpAuth::None, None)]
 //     #[case::basic(
-//         HttpAuth::Basic(HttpBasicAuth{username: "user".to_string(), password: "pass".to_string()}),
-//         Some("Basic dXNlcjpwYXNz"),
+//         HttpAuth::Basic(HttpBasicAuth{username: "user".to_string(), password:
+// "pass".to_string()}),         Some("Basic dXNlcjpwYXNz"),
 //     )]
 //     #[case::bearer(
 //         HttpAuth::Bearer(HttpBearerToken{token: "bearer-token".to_string()}),
 //         Some("Bearer bearer-token"),
 //     )]
 //     #[tokio::test]
-//     async fn api_client_sends_auth(#[case] auth: HttpAuth, #[case] expected: Option<&str>) {
-//         let test_server = spawn_mock_server().await;
+//     async fn api_client_sends_auth(#[case] auth: HttpAuth, #[case] expected:
+// Option<&str>) {         let test_server = spawn_mock_server().await;
 //
 //         let mock = match expected {
 //             Some(a) => Mock::given(matchers::header("Authorization", a)),
-//             None => Mock::given(HeaderIsMissingMatcher("Authorization".try_into().unwrap())),
+//             None =>
+// Mock::given(HeaderIsMissingMatcher("Authorization".try_into().unwrap())),
 //         };
 //
 //         mock.respond_with(ResponseTemplate::new(StatusCode::OK))
@@ -643,7 +654,8 @@ fn apply_template(
 //             vars: Default::default(),
 //         };
 //
-//         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
+//         let api_request = ApiClientRequest::new(CollectionModel::default(),
+// request);
 //
 //         api_request.execute().await.expect("request failed");
 //     }
@@ -672,7 +684,8 @@ fn apply_template(
 //             vars: Default::default(),
 //         };
 //
-//         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
+//         let api_request = ApiClientRequest::new(CollectionModel::default(),
+// request);
 //
 //         api_request.execute().await.expect("request failed");
 //     }
@@ -712,7 +725,8 @@ fn apply_template(
 //             vars: Default::default(),
 //         };
 //
-//         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
+//         let api_request = ApiClientRequest::new(CollectionModel::default(),
+// request);
 //
 //         api_request.execute().await.expect("request failed");
 //     }
@@ -736,15 +750,16 @@ fn apply_template(
 //         "#;
 //
 //         let mut filter = Map::new();
-//         filter.insert("language".to_string(), Value::String("python".to_string()));
-//         filter.insert(
+//         filter.insert("language".to_string(),
+// Value::String("python".to_string()));         filter.insert(
 //             "min_stars".to_string(),
-//             Value::Number(Number::from_str("420").expect("unable to parse number")),
-//         );
+//             Value::Number(Number::from_str("420").expect("unable to parse
+// number")),         );
 //
 //         let mut variables = Map::new();
-//         variables.insert("login".to_string(), Value::String("some-name".to_string()));
-//         variables.insert("filter".to_string(), Value::Object(filter));
+//         variables.insert("login".to_string(),
+// Value::String("some-name".to_string()));         variables.insert("filter".
+// to_string(), Value::Object(filter));
 //
 //         let mut body = HashMap::new();
 //         body.insert("query", Value::String(query.to_string()));
@@ -766,15 +781,16 @@ fn apply_template(
 //                 body: Some(HttpBody::GraphQL(HttpGraphQLBody {
 //                     graphql: GraphQLBody {
 //                         query: query.to_string(),
-//                         variables: variables.into_iter().collect::<HashMap<String, Value>>(),
-//                     },
-//                 })),
+//                         variables:
+// variables.into_iter().collect::<HashMap<String, Value>>(),                   
+// },                 })),
 //                 ..Default::default()
 //             },
 //             vars: Default::default(),
 //         };
 //
-//         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
+//         let api_request = ApiClientRequest::new(CollectionModel::default(),
+// request);
 //
 //         api_request.execute().await.expect("request failed");
 //     }
@@ -782,9 +798,9 @@ fn apply_template(
 //     #[tokio::test]
 //     async fn test_client_sends_binary_body() {
 //         let body: Vec<u8> = vec![
-//             0xa3, 0x2d, 0x30, 0x1f, 0xc9, 0x5f, 0xc1, 0xdf, 0x9f, 0x8e, 0x1d, 0xff, 0x56, 0xb7,
-//             0xef, 0xac, 0x0f, 0x4f, 0xe6, 0x62, 0x82, 0x91, 0xbc, 0xb9, 0xb9, 0x4a, 0x20, 0xfa,
-//             0x68, 0x3c, 0x18, 0x8e,
+//             0xa3, 0x2d, 0x30, 0x1f, 0xc9, 0x5f, 0xc1, 0xdf, 0x9f, 0x8e, 0x1d,
+// 0xff, 0x56, 0xb7,             0xef, 0xac, 0x0f, 0x4f, 0xe6, 0x62, 0x82, 0x91,
+// 0xbc, 0xb9, 0xb9, 0x4a, 0x20, 0xfa,             0x68, 0x3c, 0x18, 0x8e,
 //         ];
 //
 //         let test_server = spawn_mock_server().await;
@@ -810,7 +826,8 @@ fn apply_template(
 //             vars: Default::default(),
 //         };
 //
-//         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
+//         let api_request = ApiClientRequest::new(CollectionModel::default(),
+// request);
 //
 //         api_request.execute().await.expect("request failed");
 //     }
@@ -831,12 +848,13 @@ fn apply_template(
 //         ];
 //
 //         let mut expected_data = HashMap::new();
-//         expected_data.insert("name".to_string(), "Firstname Lastname".to_string());
-//         expected_data.insert(
+//         expected_data.insert("name".to_string(), "Firstname
+// Lastname".to_string());         expected_data.insert(
 //             "email".to_string(),
 //             "firstname.lastname@example.org".to_string(),
 //         );
-//         let expected_len = serde_urlencoded::to_string(&expected_data).unwrap().len();
+//         let expected_len =
+// serde_urlencoded::to_string(&expected_data).unwrap().len();
 //
 //         let test_server = spawn_mock_server().await;
 //         Mock::given(FormDataMatcher(expected_data))
@@ -861,7 +879,8 @@ fn apply_template(
 //             vars: Default::default(),
 //         };
 //
-//         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
+//         let api_request = ApiClientRequest::new(CollectionModel::default(),
+// request);
 //
 //         api_request.execute().await.expect("request failed");
 //     }
@@ -888,7 +907,8 @@ fn apply_template(
 //         let mut expected_data = HashMap::new();
 //         expected_data.insert("findme1".to_string(), "".to_string());
 //         expected_data.insert("findme2".to_string(), "".to_string());
-//         let expected_len = serde_urlencoded::to_string(&expected_data).unwrap().len();
+//         let expected_len =
+// serde_urlencoded::to_string(&expected_data).unwrap().len();
 //
 //         let test_server = spawn_mock_server().await;
 //         Mock::given(matchers::any())
@@ -914,7 +934,8 @@ fn apply_template(
 //             vars: Default::default(),
 //         };
 //
-//         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
+//         let api_request = ApiClientRequest::new(CollectionModel::default(),
+// request);
 //
 //         api_request.execute().await.expect("request failed");
 //     }
@@ -942,7 +963,8 @@ fn apply_template(
 //             },
 //         };
 //
-//         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
+//         let api_request = ApiClientRequest::new(CollectionModel::default(),
+// request);
 //
 //         api_request.execute().await.expect("request failed");
 //     }
@@ -959,7 +981,8 @@ fn apply_template(
 //         .mount(&test_server.mock)
 //         .await;
 //
-//         let variables = [("username", "a-username"), ("password", "a-password")];
+//         let variables = [("username", "a-username"), ("password",
+// "a-password")];
 //
 //         let request = RequestModel {
 //             http: HttpRequestModel {
@@ -977,7 +1000,8 @@ fn apply_template(
 //             },
 //         };
 //
-//         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
+//         let api_request = ApiClientRequest::new(CollectionModel::default(),
+// request);
 //
 //         api_request.execute().await.expect("request failed");
 //     }
@@ -1013,7 +1037,8 @@ fn apply_template(
 //             },
 //         };
 //
-//         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
+//         let api_request = ApiClientRequest::new(CollectionModel::default(),
+// request);
 //
 //         api_request.execute().await.expect("request failed");
 //     }
@@ -1030,14 +1055,15 @@ fn apply_template(
 //             .mount(&test_server.mock)
 //             .await;
 //
-//         let variables = [("header_name", header_name), ("header_value", header_value)];
+//         let variables = [("header_name", header_name), ("header_value",
+// header_value)];
 //
 //         let request = RequestModel {
 //             http: HttpRequestModel {
 //                 method: HttpMethod::Get,
 //                 url: test_server.base_url,
-//                 headers: NameValueList::from([("{{header_name}}", "{{header_value}}")]),
-//                 ..Default::default()
+//                 headers: NameValueList::from([("{{header_name}}",
+// "{{header_value}}")]),                 ..Default::default()
 //             },
 //             vars: RequestVarsModel {
 //                 pre_request: NameValueList::from(variables),
@@ -1045,7 +1071,8 @@ fn apply_template(
 //             },
 //         };
 //
-//         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
+//         let api_request = ApiClientRequest::new(CollectionModel::default(),
+// request);
 //
 //         api_request.execute().await.expect("request failed");
 //     }
@@ -1079,7 +1106,8 @@ fn apply_template(
 //             },
 //         };
 //
-//         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
+//         let api_request = ApiClientRequest::new(CollectionModel::default(),
+// request);
 //
 //         api_request.execute().await.expect("request failed");
 //     }
@@ -1122,7 +1150,8 @@ fn apply_template(
 //             },
 //         };
 //
-//         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
+//         let api_request = ApiClientRequest::new(CollectionModel::default(),
+// request);
 //
 //         api_request.execute().await.expect("request failed");
 //     }
@@ -1194,7 +1223,8 @@ fn apply_template(
 //             },
 //         };
 //
-//         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
+//         let api_request = ApiClientRequest::new(CollectionModel::default(),
+// request);
 //
 //         api_request.execute().await.expect("request failed");
 //     }
@@ -1227,7 +1257,8 @@ fn apply_template(
 //             },
 //         };
 //
-//         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
+//         let api_request = ApiClientRequest::new(CollectionModel::default(),
+// request);
 //
 //         api_request.execute().await.expect("request failed");
 //     }
@@ -1264,7 +1295,8 @@ fn apply_template(
 //             },
 //         };
 //
-//         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
+//         let api_request = ApiClientRequest::new(CollectionModel::default(),
+// request);
 //
 //         api_request.execute().await.expect("request failed");
 //     }

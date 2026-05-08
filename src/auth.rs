@@ -1,8 +1,9 @@
 use std::str::FromStr;
 
+use exn::bail;
+
 use crate::error::{ApiClientError, Result};
 use crate::models::HttpAuth;
-use exn::bail;
 
 pub enum Auth {
     None,
@@ -10,10 +11,7 @@ pub enum Auth {
     Bearer { token: String },
 }
 
-pub fn get_auth(
-    request_auth: &HttpAuth,
-    collection_auth: &Option<HttpAuth>,
-) -> Result<Auth> {
+pub fn get_auth(request_auth: &HttpAuth, collection_auth: &Option<HttpAuth>) -> Result<Auth> {
     let request_auth = match request_auth {
         HttpAuth::Inherit => collection_auth.as_ref().unwrap_or(&HttpAuth::None),
         _ => request_auth,
