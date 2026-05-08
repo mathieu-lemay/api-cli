@@ -178,7 +178,7 @@ pub async fn spawn_mock_server() -> TestServer {
 }
 
 fn load_test_collection() -> CollectionModel {
-    let fp = Path::new("./tests/collections/GitHub/collection.yaml");
+    let fp = Path::new("./tests/collections/GitHub/collection.yml");
 
     let data = fs::read(fp).unwrap();
 
@@ -187,7 +187,7 @@ fn load_test_collection() -> CollectionModel {
 
 fn load_test_request(name: &str) -> RequestModel {
     let mut fp = PathBuf::from("./tests/collections/GitHub");
-    fp.push(format!("{}.yaml", name));
+    fp.push(format!("{}.yml", name));
 
     let data = fs::read(fp).unwrap();
 

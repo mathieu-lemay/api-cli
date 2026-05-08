@@ -101,7 +101,7 @@ fn find_environments_in_directory(collection_dir: PathBuf) -> Result<Vec<String>
             .file_name()
             .unwrap()
             .to_string_lossy()
-            .strip_suffix(".yaml")
+            .strip_suffix(".yml")
             .unwrap()
             .to_string();
 

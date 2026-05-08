@@ -96,7 +96,7 @@ fn find_collections() -> Result<Vec<String>> {
             continue;
         }
 
-        path.push("collection.yaml");
+        path.push("opencollection.yml");
 
         if !path.exists() {
             continue;
