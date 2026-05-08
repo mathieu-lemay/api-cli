@@ -14,7 +14,7 @@ use serde_json::{Map, Value};
 use crate::auth::{get_auth, Auth};
 use crate::error::Result;
 pub use crate::models::{CollectionModel, EnvironmentModel, RequestModel};
-use crate::models::{GraphQLBody, HttpAuth, HttpBody};
+use crate::models::{GraphQLBody, HttpBody};
 
 mod auth;
 pub mod error;

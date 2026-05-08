@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 use exn::bail;
 
 use crate::error::{ApiClientError, Result};

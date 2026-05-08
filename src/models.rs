@@ -219,14 +219,6 @@ pub(crate) struct HttpRequestModel {
 }
 
 #[derive(Default, Debug, Serialize, Deserialize)]
-pub(crate) struct RequestVarsModel {
-    #[serde(alias = "pre-request", default)]
-    pub(crate) pre_request: NameValueList,
-    #[serde(alias = "post-request", default)]
-    pub(crate) _post_request: NameValueList,
-}
-
-#[derive(Default, Debug, Serialize, Deserialize)]
 pub(crate) struct HttpRequestRuntimeModel {
     pub(crate) variables: NameValueList,
 }
