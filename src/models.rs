@@ -247,7 +247,7 @@ pub(crate) enum HttpBody {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct HttpTextBody {
-    pub(crate) text: String,
+    pub(crate) data: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

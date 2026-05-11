@@ -163,7 +163,7 @@ impl ApiClientRequest {
             req = match body {
                 HttpBody::Text(t) => {
                     let text = hb
-                        .render_template(&t.text, &variables)
+                        .render_template(&t.data, &variables)
                         .or_raise(|| "Error rendering template".into())?;
                     req.header("Content-Type", "text/plain").body(text)
                 }
