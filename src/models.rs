@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::marker::PhantomData;
 use std::str::FromStr;
+
 use serde::de::{Error as _, MapAccess, SeqAccess, Visitor};
 use serde::{de, Deserialize, Deserializer, Serialize};
 use serde_json::Value;
@@ -71,7 +72,7 @@ impl FormValueList {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub(crate) struct FormValue{
+pub(crate) struct FormValue {
     pub(crate) name: String,
     #[serde(deserialize_with = "string_or_list")]
     pub(crate) value: String,
@@ -332,7 +333,7 @@ where
         where
             A: SeqAccess<'de>,
         {
-            let v =  match seq.next_element::<String>()? {
+            let v = match seq.next_element::<String>()? {
                 Some(v) => v,
                 None => return Err(A::Error::custom("array is empty")),
             };

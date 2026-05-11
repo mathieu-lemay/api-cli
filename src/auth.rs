@@ -25,11 +25,8 @@ pub fn get_auth(request_auth: &HttpAuth, collection_auth: &Option<HttpAuth>) -> 
                 Some(s) => s.clone(),
                 None => String::new(),
             };
-            Auth::Basic {
-                username,
-                password,
-            }
-        },
+            Auth::Basic { username, password }
+        }
         HttpAuth::Bearer(token) => Auth::Bearer {
             token: token.token.clone(),
         },
