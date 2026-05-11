@@ -14,7 +14,7 @@ use serde_json::{Map, Value};
 use crate::auth::{get_auth, Auth};
 use crate::error::Result;
 pub use crate::models::{CollectionModel, EnvironmentModel, RequestModel};
-use crate::models::{GraphQLBody, HttpBody};
+use crate::models::{FormValueType, GraphQLBody, HttpBody};
 
 mod auth;
 pub mod error;
@@ -57,7 +57,7 @@ impl ApiClientRequest {
         self
     }
 
-    fn prepare(self) -> Result<Request> {
+    async fn prepare(self) -> Result<Request> {
         let hb = {
             let mut hb = handlebars::Handlebars::new();
             hb.set_strict_mode(true);
@@ -169,7 +169,7 @@ impl ApiClientRequest {
                 }
                 HttpBody::Json(j) => {
                     // TODO: Find a better way than re/deserializing.
-                    let json_str = serde_json::to_string(&j.json)
+                    let json_str = serde_json::to_string(&j.data)
                         .or_raise(|| "Error serializing json".into())?;
                     let json_str = hb
                         .render_template(&json_str, &variables)
@@ -215,9 +215,9 @@ impl ApiClientRequest {
                     req.header("Content-Type", "application/x-www-form-urlencoded")
                         .body(BASE64_STANDARD.decode(body).expect("invalid base64"))
                 }
-                HttpBody::Form(f) => {
+                HttpBody::FormUrlEncoded(f) => {
                     let mut form = HashMap::new();
-                    for i in f.form.items() {
+                    for i in f.data.items() {
                         form.insert(
                             hb.render_template(&i.name, &variables)
                                 .or_raise(|| "Error rendering template".into())?,
@@ -228,6 +228,28 @@ impl ApiClientRequest {
 
                     req.form(&form)
                 }
+                HttpBody::MultipartForm(f) => {
+                    let mut form = reqwest::multipart::Form::new();
+                    for i in f.data.items() {
+                        match i.type_ {
+                            FormValueType::Text => {
+                                form = form.text(
+                                    i.name.clone(),
+                                    hb.render_template(&i.value, &variables)
+                                        .or_raise(|| "Error rendering template".into())?,
+                                );
+                            }
+                            FormValueType::File => {
+                                form = form
+                                    .file(i.name.clone(), i.value.clone())
+                                    .await
+                                    .or_raise(|| "Invalid file".into())?;
+                            }
+                        }
+                    }
+
+                    req.multipart(form)
+                }
             }
         }
 
@@ -237,7 +259,7 @@ impl ApiClientRequest {
     }
 
     pub async fn execute(self) -> Result<Response> {
-        let request = self.prepare()?;
+        let request = self.prepare().await?;
 
         info!("{} {}", request.method(), request.url());
 
@@ -782,7 +804,7 @@ fn apply_template(
 //                     graphql: GraphQLBody {
 //                         query: query.to_string(),
 //                         variables:
-// variables.into_iter().collect::<HashMap<String, Value>>(),                   
+// variables.into_iter().collect::<HashMap<String, Value>>(),
 // },                 })),
 //                 ..Default::default()
 //             },

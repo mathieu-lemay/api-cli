@@ -16,9 +16,19 @@ pub fn get_auth(request_auth: &HttpAuth, collection_auth: &Option<HttpAuth>) -> 
     };
 
     let a = match request_auth {
-        HttpAuth::Basic(basic) => Auth::Basic {
-            username: basic.username.clone(),
-            password: basic.password.clone(),
+        HttpAuth::Basic(basic) => {
+            let username = match &basic.username {
+                Some(s) => s.clone(),
+                None => String::new(),
+            };
+            let password = match &basic.password {
+                Some(s) => s.clone(),
+                None => String::new(),
+            };
+            Auth::Basic {
+                username,
+                password,
+            }
         },
         HttpAuth::Bearer(token) => Auth::Bearer {
             token: token.token.clone(),

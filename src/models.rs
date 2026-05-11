@@ -2,8 +2,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::marker::PhantomData;
 use std::str::FromStr;
-
-use serde::de::{MapAccess, Visitor};
+use serde::de::{Error as _, MapAccess, SeqAccess, Visitor};
 use serde::{de, Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
@@ -19,7 +18,7 @@ impl NameValueList {
     }
 
     pub(crate) fn items(&self) -> impl Iterator<Item = &NameValuePair> {
-        self.0.iter().filter(|i| i.enabled.unwrap_or(true))
+        self.0.iter().filter(|i| !i.disabled.unwrap_or(false))
     }
 }
 
@@ -34,7 +33,7 @@ where
                 .map(|(k, v)| NameValuePair {
                     name: k.into(),
                     value: v.into(),
-                    enabled: Some(true),
+                    disabled: None,
                 })
                 .collect(),
         )
@@ -47,12 +46,95 @@ impl<'a> NameValueList {
             .map(|p| (p.name.as_str(), p.value.as_str()))
             .collect()
     }
+}
 
-    fn as_tuple_list(&'a self) -> Vec<(&'a str, &'a str)> {
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct NameValuePair {
+    pub(crate) name: String,
+    pub(crate) value: String,
+    // TODO: check serde_bool
+    pub(crate) disabled: Option<bool>,
+}
+
+#[derive(Default, Debug, Serialize, Deserialize)]
+pub(crate) struct FormValueList(Vec<FormValue>);
+
+impl FormValueList {
+    #[allow(dead_code)]
+    pub(crate) fn new(values: Vec<FormValue>) -> Self {
+        Self(values)
+    }
+
+    pub(crate) fn items(&self) -> impl Iterator<Item = &FormValue> {
+        self.0.iter().filter(|i| !i.disabled.unwrap_or(false))
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct FormValue{
+    pub(crate) name: String,
+    #[serde(deserialize_with = "string_or_list")]
+    pub(crate) value: String,
+    pub(crate) content_type: Option<String>,
+    #[serde(default, rename = "type")]
+    pub(crate) type_: FormValueType,
+    pub(crate) disabled: Option<bool>,
+}
+
+#[derive(Default, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum FormValueType {
+    #[default]
+    Text,
+    File,
+}
+
+#[derive(Default, Debug, Serialize, Deserialize)]
+pub(crate) struct HttpParamList(Vec<HttpParam>);
+
+impl HttpParamList {
+    #[allow(dead_code)]
+    pub(crate) fn new(values: Vec<HttpParam>) -> Self {
+        Self(values)
+    }
+
+    pub(crate) fn items(&self) -> impl Iterator<Item = &HttpParam> {
+        self.0.iter().filter(|i| !i.disabled.unwrap_or(false))
+    }
+}
+
+impl<'a> HttpParamList {
+    pub(crate) fn get_query_params(&'a self) -> Vec<(&'a str, &'a str)> {
         self.items()
+            .filter(|i| i.type_ == HttpParamType::Query)
             .map(|p| (p.name.as_str(), p.value.as_str()))
             .collect()
     }
+
+    // TODO: Handle path params
+    pub(crate) fn get_path_params(&'a self) -> Vec<(&'a str, &'a str)> {
+        self.items()
+            .filter(|i| i.type_ == HttpParamType::Path)
+            .map(|p| (p.name.as_str(), p.value.as_str()))
+            .collect()
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct HttpParam {
+    pub(crate) name: String,
+    pub(crate) value: String,
+    #[serde(rename = "type")]
+    pub(crate) type_: HttpParamType,
+    // TODO: check serde_bool
+    pub(crate) disabled: Option<bool>,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum HttpParamType {
+    Query,
+    Path,
 }
 
 #[derive(Default, Debug, Serialize, Deserialize)]
@@ -61,30 +143,10 @@ pub struct EnvironmentModel {
     pub(crate) variables: NameValueList,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub(crate) struct NameValuePair {
-    pub(crate) name: String,
-    pub(crate) value: String,
-    // TODO: check serde_bool
-    pub(crate) enabled: Option<bool>,
-}
-
-#[derive(Default, Debug, Serialize, Deserialize)]
-pub(crate) struct HttpParamsModel {
-    #[serde(default)]
-    pub(crate) query: NameValueList,
-}
-
-impl HttpParamsModel {
-    pub(crate) fn get_query_params(&self) -> Vec<(&str, &str)> {
-        self.query.as_tuple_list()
-    }
-}
-
 #[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub(crate) struct HttpBasicAuth {
-    pub(crate) username: String,
-    pub(crate) password: String,
+    pub(crate) username: Option<String>,
+    pub(crate) password: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
@@ -176,7 +238,10 @@ pub(crate) enum HttpBody {
     Json(HttpJsonBody),
     GraphQL(HttpGraphQLBody),
     Binary(HttpBinaryBody),
-    Form(HttpFormBody),
+    #[serde(rename = "form-urlencoded")]
+    FormUrlEncoded(HttpFormBody),
+    #[serde(rename = "multipart-form")]
+    MultipartForm(HttpMultipartFormBody),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -186,7 +251,7 @@ pub(crate) struct HttpTextBody {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct HttpJsonBody {
-    pub(crate) json: Value,
+    pub(crate) data: Value,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -201,7 +266,12 @@ pub(crate) struct HttpBinaryBody {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct HttpFormBody {
-    pub(crate) form: NameValueList,
+    pub(crate) data: FormValueList,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct HttpMultipartFormBody {
+    pub(crate) data: FormValueList,
 }
 
 #[derive(Default, Debug, Serialize, Deserialize)]
@@ -213,7 +283,7 @@ pub(crate) struct HttpRequestModel {
     #[serde(default)]
     pub(crate) headers: NameValueList,
     #[serde(default)]
-    pub(crate) params: HttpParamsModel,
+    pub(crate) params: HttpParamList,
     #[serde(default)]
     pub(crate) body: Option<HttpBody>,
 }
@@ -227,7 +297,55 @@ pub(crate) struct HttpRequestRuntimeModel {
 pub struct RequestModel {
     // _meta: RequestMetaModel,
     pub(crate) http: HttpRequestModel,
+    #[serde(default)]
     pub(crate) runtime: HttpRequestRuntimeModel,
+}
+
+fn string_or_list<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    struct StringOrList;
+
+    impl<'de> Visitor<'de> for StringOrList {
+        type Value = String;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("string or list of one string")
+        }
+
+        fn visit_str<E>(self, value: &str) -> Result<String, E>
+        where
+            E: de::Error,
+        {
+            Ok(value.to_owned())
+        }
+
+        fn visit_string<E>(self, value: String) -> Result<String, E>
+        where
+            E: de::Error,
+        {
+            Ok(value)
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<String, A::Error>
+        where
+            A: SeqAccess<'de>,
+        {
+            let v =  match seq.next_element::<String>()? {
+                Some(v) => v,
+                None => return Err(A::Error::custom("array is empty")),
+            };
+
+            if let Some(_) = seq.next_element::<String>()? {
+                return Err(A::Error::custom("array contains more than one element"));
+            };
+
+            Ok(v)
+        }
+    }
+
+    deserializer.deserialize_any(StringOrList)
 }
 
 fn string_or_struct<'de, T, D>(deserializer: D) -> Result<T, D::Error>
