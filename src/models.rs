@@ -338,7 +338,7 @@ where
                 None => return Err(A::Error::custom("array is empty")),
             };
 
-            if let Some(_) = seq.next_element::<String>()? {
+            if seq.next_element::<String>()?.is_some() {
                 return Err(A::Error::custom("array contains more than one element"));
             };
 
