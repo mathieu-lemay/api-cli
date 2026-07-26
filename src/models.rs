@@ -10,6 +10,30 @@ use serde_json::Value;
 use crate::error::ApiClientError;
 
 #[derive(Default, Debug, Serialize, Deserialize)]
+pub struct RequestModel {
+    pub(crate) info: RequestInfoModel,
+    pub(crate) http: HttpRequestModel,
+    pub(crate) graphql: GraphQLRequestModel,
+    #[serde(default)]
+    pub(crate) runtime: RequestRuntimeModel,
+}
+
+#[derive(Default, Debug, Serialize, Deserialize)]
+pub(crate) struct RequestInfoModel {
+    pub(crate) name: String,
+    #[serde(rename = "type")]
+    pub(crate) type_: RequestType,
+}
+
+#[derive(Default, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum RequestType {
+    #[default]
+    Http,
+    GraphQL
+}
+
+#[derive(Default, Debug, Serialize, Deserialize)]
 pub(crate) struct NameValueList(Vec<NameValuePair>);
 
 impl NameValueList {
@@ -225,7 +249,7 @@ pub struct CollectionRequestModel {
     pub(crate) variables: NameValueList,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Default, Debug, Serialize, Deserialize)]
 pub(crate) struct GraphQLBody {
     pub(crate) query: String,
     #[serde(default)]
@@ -237,7 +261,6 @@ pub(crate) struct GraphQLBody {
 pub(crate) enum HttpBody {
     Text(HttpTextBody),
     Json(HttpJsonBody),
-    GraphQL(HttpGraphQLBody),
     Binary(HttpBinaryBody),
     #[serde(rename = "form-urlencoded")]
     FormUrlEncoded(HttpFormBody),
@@ -290,16 +313,19 @@ pub(crate) struct HttpRequestModel {
 }
 
 #[derive(Default, Debug, Serialize, Deserialize)]
-pub(crate) struct HttpRequestRuntimeModel {
-    pub(crate) variables: NameValueList,
+pub(crate) struct GraphQLRequestModel {
+    pub(crate) method: HttpMethod,
+    pub(crate) url: String, // validate len > 0
+    #[serde(deserialize_with = "string_or_struct")]
+    pub(crate) auth: HttpAuth,
+    #[serde(default)]
+    pub(crate) headers: NameValueList,
+    pub(crate) body: GraphQLBody,
 }
 
 #[derive(Default, Debug, Serialize, Deserialize)]
-pub struct RequestModel {
-    // _meta: RequestMetaModel,
-    pub(crate) http: HttpRequestModel,
-    #[serde(default)]
-    pub(crate) runtime: HttpRequestRuntimeModel,
+pub(crate) struct RequestRuntimeModel {
+    pub(crate) variables: NameValueList,
 }
 
 fn string_or_list<'de, D>(deserializer: D) -> Result<String, D::Error>

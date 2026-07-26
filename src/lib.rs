@@ -14,7 +14,7 @@ use serde_json::{Map, Value};
 use crate::auth::{get_auth, Auth};
 use crate::error::Result;
 pub use crate::models::{CollectionModel, EnvironmentModel, RequestModel};
-use crate::models::{FormValueType, GraphQLBody, HttpBody};
+use crate::models::{FormValueType, GraphQLBody, HttpBody, RequestType};
 
 mod auth;
 pub mod error;
@@ -64,26 +64,7 @@ impl ApiClientRequest {
             hb
         };
 
-        let global_vars = self.global_variables.unwrap_or_default();
-        let env = self.environment.unwrap_or_default();
-        let override_vars = self.override_variables.unwrap_or_default();
-
-        let mut variables = HashMap::new();
-        variables.extend(
-            global_vars
-                .iter()
-                .map(|(k, v)| (k.as_str(), v.as_str()))
-                .collect::<HashMap<&str, &str>>(),
-        );
-        variables.extend(self.collection.request.variables.as_map());
-        variables.extend(env.variables.as_map());
-        variables.extend(self.request.runtime.variables.as_map());
-        variables.extend(
-            override_vars
-                .iter()
-                .map(|(k, v)| (k.as_str(), v.as_str()))
-                .collect::<HashMap<&str, &str>>(),
-        );
+        let variables = self.merge_variables();
 
         debug!("Request variables: {:#?}", variables);
 
@@ -159,103 +140,163 @@ impl ApiClientRequest {
             }
         };
 
-        if let Some(body) = self.request.http.body {
-            req = match body {
-                HttpBody::Text(t) => {
-                    let text = hb
-                        .render_template(&t.data, &variables)
-                        .or_raise(|| "Error rendering template".into())?;
-                    req.header("Content-Type", "text/plain").body(text)
-                }
-                HttpBody::Json(j) => {
-                    // TODO: Find a better way than re/deserializing.
-                    let json_str = serde_json::to_string(&j.data)
-                        .or_raise(|| "Error serializing json".into())?;
-                    let json_str = hb
-                        .render_template(&json_str, &variables)
-                        .or_raise(|| "Error rendering template".into())?;
-                    let json: Value = serde_json::from_str(&json_str)
-                        .or_raise(|| "Error deserializing json".into())?;
-
-                    req.json(&json)
-                }
-                HttpBody::GraphQL(g) => {
-                    let query = hb
-                        .render_template(&g.graphql.query, &variables)
-                        .or_raise(|| "Error rendering template".into())?;
-
-                    let variables = {
-                        let mut vars = HashMap::new();
-
-                        for (k, v) in g.graphql.variables.into_iter() {
-                            let key = hb
-                                .render_template(&k, &variables)
-                                .or_raise(|| "Error rendering template".into())?;
-
-                            // let value = serde_json::to_string(v)?;
-                            // let value = hb.render_template(&value, &variables)?;
-                            let value = apply_template(&hb, v, &variables)?;
-
-                            vars.insert(key, value);
-                        }
-
-                        vars
-                    };
-
-                    let payload = GraphQLBody { query, variables };
-
-                    req.json(&payload)
-                }
-                HttpBody::Binary(b) => {
-                    let body = hb
-                        .render_template(&b.binary, &variables)
-                        .or_raise(|| "Error rendering template".into())?;
-
-                    // TODO Manage Error
-                    req.header("Content-Type", "application/x-www-form-urlencoded")
-                        .body(BASE64_STANDARD.decode(body).expect("invalid base64"))
-                }
-                HttpBody::FormUrlEncoded(f) => {
-                    let mut form = HashMap::new();
-                    for i in f.data.items() {
-                        form.insert(
-                            hb.render_template(&i.name, &variables)
-                                .or_raise(|| "Error rendering template".into())?,
-                            hb.render_template(&i.value, &variables)
-                                .or_raise(|| "Error rendering template".into())?,
-                        );
-                    }
-
-                    req.form(&form)
-                }
-                HttpBody::MultipartForm(f) => {
-                    let mut form = reqwest::multipart::Form::new();
-                    for i in f.data.items() {
-                        match i.type_ {
-                            FormValueType::Text => {
-                                form = form.text(
-                                    i.name.clone(),
-                                    hb.render_template(&i.value, &variables)
-                                        .or_raise(|| "Error rendering template".into())?,
-                                );
-                            }
-                            FormValueType::File => {
-                                form = form
-                                    .file(i.name.clone(), i.value.clone())
-                                    .await
-                                    .or_raise(|| "Invalid file".into())?;
-                            }
-                        }
-                    }
-
-                    req.multipart(form)
-                }
+        req = match self.request.info.type_ {
+            RequestType::Http => self.build_http_request_body(req, &hb, &variables).await?,
+            RequestType::GraphQL => {
+                self.build_graphql_request_body(req, &hb, &variables)
+                    .await?
             }
-        }
+        };
 
         req = req.timeout(Duration::from_secs(60));
 
         req.build().or_raise(|| "Error building request".into())
+    }
+
+    fn merge_variables(&self) -> HashMap<&str, &str> {
+        let mut variables = HashMap::new();
+
+        if let Some(v) = &self.global_variables {
+            variables.extend(
+                v
+                    .iter()
+                    .map(|(k, v)| (k.as_str(), v.as_str()))
+                    .collect::<HashMap<&str, &str>>(),
+            );
+        }
+
+        variables.extend(self.collection.request.variables.as_map());
+
+        if let Some(env) = &self.environment {
+            variables.extend(env.variables.as_map());
+        }
+
+        variables.extend(self.request.runtime.variables.as_map());
+
+        if let Some(v) = &self.override_variables {
+            variables.extend(
+                v
+                    .iter()
+                    .map(|(k, v)| (k.as_str(), v.as_str()))
+                    .collect::<HashMap<&str, &str>>(),
+            );
+        }
+
+        variables
+    }
+
+    async fn build_http_request_body<'a>(
+        &self,
+        req: reqwest::RequestBuilder,
+        hb: &'a Handlebars<'_>,
+        variables: &HashMap<&str, &str>,
+    ) -> Result<reqwest::RequestBuilder> {
+        let body = match &self.request.http.body {
+            Some(b) => b,
+            None => return Ok(req),
+        };
+
+        let req = match body {
+            HttpBody::Text(t) => {
+                let text = hb
+                    .render_template(&t.data, &variables)
+                    .or_raise(|| "Error rendering template".into())?;
+                req.header("Content-Type", "text/plain").body(text)
+            }
+            HttpBody::Json(j) => {
+                // TODO: Find a better way than re/deserializing.
+                let json_str =
+                    serde_json::to_string(&j.data).or_raise(|| "Error serializing json".into())?;
+                let json_str = hb
+                    .render_template(&json_str, &variables)
+                    .or_raise(|| "Error rendering template".into())?;
+                let json: Value = serde_json::from_str(&json_str)
+                    .or_raise(|| "Error deserializing json".into())?;
+
+                req.json(&json)
+            }
+            HttpBody::Binary(b) => {
+                let body = hb
+                    .render_template(&b.binary, &variables)
+                    .or_raise(|| "Error rendering template".into())?;
+
+                // TODO Manage Error
+                req.header("Content-Type", "application/x-www-form-urlencoded")
+                    .body(BASE64_STANDARD.decode(body).expect("invalid base64"))
+            }
+            HttpBody::FormUrlEncoded(f) => {
+                let mut form = HashMap::new();
+                for i in f.data.items() {
+                    form.insert(
+                        hb.render_template(&i.name, &variables)
+                            .or_raise(|| "Error rendering template".into())?,
+                        hb.render_template(&i.value, &variables)
+                            .or_raise(|| "Error rendering template".into())?,
+                    );
+                }
+
+                req.form(&form)
+            }
+            HttpBody::MultipartForm(f) => {
+                let mut form = reqwest::multipart::Form::new();
+                for i in f.data.items() {
+                    match i.type_ {
+                        FormValueType::Text => {
+                            form = form.text(
+                                i.name.clone(),
+                                hb.render_template(&i.value, &variables)
+                                    .or_raise(|| "Error rendering template".into())?,
+                            );
+                        }
+                        FormValueType::File => {
+                            form = form
+                                .file(i.name.clone(), i.value.clone())
+                                .await
+                                .or_raise(|| "Invalid file".into())?;
+                        }
+                    }
+                }
+
+                req.multipart(form)
+            }
+        };
+
+        Ok(req)
+    }
+
+    async fn build_graphql_request_body<'a>(
+        &self,
+        req: reqwest::RequestBuilder,
+        hb: &'a Handlebars<'_>,
+        variables: &HashMap<&str, &str>,
+    ) -> Result<reqwest::RequestBuilder> {
+        let body = &self.request.graphql.body;
+
+        let query = hb
+            .render_template(&body.query, &variables)
+            .or_raise(|| "Error rendering template".into())?;
+
+        let variables = {
+            let mut vars = HashMap::new();
+
+            for (k, v) in body.variables.iter() {
+                let key = hb
+                    .render_template(&k, &variables)
+                    .or_raise(|| "Error rendering template".into())?;
+
+                // let value = serde_json::to_string(v)?;
+                // let value = hb.render_template(&value, &variables)?;
+                let value = apply_template(&hb, v, &variables)?;
+
+                vars.insert(key, value);
+            }
+
+            vars
+        };
+
+        let payload = GraphQLBody { query, variables };
+
+        Ok(req.json(&payload))
     }
 
     pub async fn execute(self) -> Result<Response> {
@@ -278,16 +319,16 @@ impl ApiClientRequest {
 
 fn apply_template(
     hb: &Handlebars<'_>,
-    value: Value,
+    value: &Value,
     variables: &HashMap<&str, &str>,
 ) -> Result<Value> {
     let value = match value {
         Value::Object(o) => {
             let m = o
-                .into_iter()
+                .iter()
                 .map(|(k, v)| {
                     let rendered = apply_template(hb, v, variables)?;
-                    Ok((k, rendered))
+                    Ok((k.clone(), rendered))
                 })
                 .collect::<Result<Map<String, Value>>>()?;
 
@@ -310,7 +351,7 @@ fn apply_template(
                 .or_raise(|| "Error rendering template".into())?;
             Value::String(s)
         }
-        _ => value,
+        _ => value.clone(),
     };
 
     Ok(value)
