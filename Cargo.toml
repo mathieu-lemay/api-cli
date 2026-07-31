@@ -17,6 +17,7 @@ name = "api-cli"
 test = false
 
 [dependencies]
+async-trait = "0.1.91"
 base64 = "0.22.1"
 clap = { version = "4.5.7", features = ["derive"] }
 clap_complete = "4.5.7"

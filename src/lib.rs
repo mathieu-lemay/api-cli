@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::time::Duration;
 
+use async_trait::async_trait;
 use base64::prelude::BASE64_STANDARD;
 use base64::Engine;
 use exn::ResultExt;
@@ -9,12 +10,22 @@ use handlebars::Handlebars;
 use log::{debug, info};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use reqwest::{Request, Response};
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::auth::{get_auth, Auth};
 use crate::error::Result;
 pub use crate::models::{CollectionModel, EnvironmentModel, RequestModel};
-use crate::models::{FormValueType, GraphQLBody, HttpBody, RequestType};
+use crate::models::{
+    FormValueType,
+    GraphQLRequestModel,
+    HttpAuth,
+    HttpBody,
+    HttpMethod,
+    HttpRequestModel,
+    NameValueList,
+    RequestType,
+};
 
 mod auth;
 pub mod error;
@@ -68,12 +79,16 @@ impl ApiClientRequest {
 
         debug!("Request variables: {:#?}", variables);
 
+        let reqable: Box<&dyn Requestable> = match self.request.info.type_ {
+            RequestType::Http => Box::new(self.request.http.as_ref().unwrap()),
+            RequestType::GraphQL => Box::new(self.request.graphql.as_ref().unwrap()),
+        };
+
         let url = hb
-            .render_template(&self.request.http.url, &variables)
+            .render_template(reqable.url(), &variables)
             .or_raise(|| "Error rendering template".into())?;
 
-        let method =
-            reqwest::Method::from_str(self.request.http.method.as_str()).expect("invalid method");
+        let method = reqwest::Method::from_str(reqable.method().as_str()).expect("invalid method");
         let url = reqwest::Url::parse(&url).expect("invalid url");
 
         let headers = {
@@ -94,7 +109,7 @@ impl ApiClientRequest {
                 );
             }
 
-            for i in self.request.http.headers.items() {
+            for i in reqable.headers().items() {
                 let key = hb
                     .render_template(&i.name, &variables)
                     .or_raise(|| "Error rendering template".into())?;
@@ -115,9 +130,9 @@ impl ApiClientRequest {
         let mut req = reqwest::Client::new()
             .request(method, url)
             .headers(headers)
-            .query(&self.request.http.params.get_query_params());
+            .query(&reqable.query_params());
 
-        let auth = get_auth(&self.request.http.auth, &self.collection.request.auth)
+        let auth = get_auth(reqable.auth(), &self.collection.request.auth)
             .or_raise(|| "Error getting request auth".into())?;
         req = match auth {
             Auth::None => req,
@@ -140,13 +155,7 @@ impl ApiClientRequest {
             }
         };
 
-        req = match self.request.info.type_ {
-            RequestType::Http => self.build_http_request_body(req, &hb, &variables).await?,
-            RequestType::GraphQL => {
-                self.build_graphql_request_body(req, &hb, &variables)
-                    .await?
-            }
-        };
+        req = reqable.build_request_body(req, &hb, &variables).await?;
 
         req = req.timeout(Duration::from_secs(60));
 
@@ -183,13 +192,115 @@ impl ApiClientRequest {
         variables
     }
 
-    async fn build_http_request_body(
+    pub async fn execute(self) -> Result<Response> {
+        let request = self.prepare().await?;
+
+        info!("{} {}", request.method(), request.url());
+
+        let client = reqwest::Client::builder()
+            .user_agent(APP_USER_AGENT)
+            .build()
+            .or_raise(|| "Error building reqwest client".into())?;
+        let resp = client
+            .execute(request)
+            .await
+            .or_raise(|| "Error executing request".into())?;
+
+        Ok(resp)
+    }
+}
+
+fn apply_template(
+    hb: &Handlebars<'_>,
+    value: &Value,
+    variables: &HashMap<&str, &str>,
+) -> Result<Value> {
+    let value = match value {
+        Value::Object(o) => {
+            let m = o
+                .iter()
+                .map(|(k, v)| {
+                    let rendered = apply_template(hb, v, variables)?;
+                    Ok((k.clone(), rendered))
+                })
+                .collect::<Result<Map<String, Value>>>()?;
+
+            Value::Object(m)
+        }
+        Value::Array(a) => {
+            let arr = a
+                .iter()
+                .map(|v| {
+                    let rendered = apply_template(hb, v, variables)?;
+                    Ok(rendered)
+                })
+                .collect::<Result<Vec<Value>>>()?;
+
+            Value::Array(arr)
+        }
+        Value::String(s) => {
+            let s = hb
+                .render_template(s, &variables)
+                .or_raise(|| "Error rendering template".into())?;
+            Value::String(s)
+        }
+        _ => value.clone(),
+    };
+
+    Ok(value)
+}
+
+#[async_trait]
+pub(crate) trait Requestable {
+    fn url(&self) -> &str;
+    fn method(&self) -> &HttpMethod;
+    fn headers(&self) -> &NameValueList;
+    fn query_params(&self) -> Vec<(&str, &str)>;
+    #[allow(dead_code)]
+    fn path_params(&self) -> Vec<(&str, &str)>;
+    fn auth(&self) -> &HttpAuth;
+
+    async fn build_request_body(
+        &self,
+        req: reqwest::RequestBuilder,
+        hb: &Handlebars<'_>,
+        variables: &HashMap<&str, &str>,
+    ) -> Result<reqwest::RequestBuilder>;
+}
+
+#[async_trait]
+impl Requestable for HttpRequestModel {
+    fn url(&self) -> &str {
+        &self.url
+    }
+
+    fn method(&self) -> &HttpMethod {
+        &self.method
+    }
+
+    fn headers(&self) -> &NameValueList {
+        &self.headers
+    }
+
+    fn query_params(&self) -> Vec<(&str, &str)> {
+        self.params.get_query_params()
+    }
+
+    fn path_params(&self) -> Vec<(&str, &str)> {
+        self.params.get_path_params()
+    }
+
+    fn auth(&self) -> &HttpAuth {
+        &self.auth
+    }
+
+    async fn build_request_body(
         &self,
         req: reqwest::RequestBuilder,
         hb: &Handlebars<'_>,
         variables: &HashMap<&str, &str>,
     ) -> Result<reqwest::RequestBuilder> {
-        let body = match &self.request.http.body {
+        let body = match &self.body {
             Some(b) => b,
             None => return Ok(req),
         };
@@ -261,14 +372,41 @@ impl ApiClientRequest {
 
         Ok(req)
     }
+}
 
-    async fn build_graphql_request_body(
+#[async_trait]
+impl Requestable for GraphQLRequestModel {
+    fn url(&self) -> &str {
+        &self.url
+    }
+
+    fn method(&self) -> &HttpMethod {
+        &self.method
+    }
+
+    fn headers(&self) -> &NameValueList {
+        &self.headers
+    }
+
+    fn query_params(&self) -> Vec<(&str, &str)> {
+        Vec::new()
+    }
+
+    fn path_params(&self) -> Vec<(&str, &str)> {
+        Vec::new()
+    }
+
+    fn auth(&self) -> &HttpAuth {
+        &self.auth
+    }
+
+    async fn build_request_body(
         &self,
         req: reqwest::RequestBuilder,
         hb: &Handlebars<'_>,
         variables: &HashMap<&str, &str>,
     ) -> Result<reqwest::RequestBuilder> {
-        let body = &self.request.graphql.body;
+        let body = &self.body;
 
         let query = hb
             .render_template(&body.query, &variables)
@@ -277,7 +415,10 @@ impl ApiClientRequest {
         let variables = {
             let mut vars = HashMap::new();
 
-            for (k, v) in body.variables.iter() {
+            let gql_vars: Map<String, Value> = serde_json::from_str(&body.variables)
+                .or_raise(|| "Error parsing GraphQL variables".into())?;
+
+            for (k, v) in gql_vars.iter() {
                 let key = hb
                     .render_template(k, &variables)
                     .or_raise(|| "Error rendering template".into())?;
@@ -292,67 +433,16 @@ impl ApiClientRequest {
             vars
         };
 
-        let payload = GraphQLBody { query, variables };
+        let payload = GraphQLPayload { query, variables };
 
         Ok(req.json(&payload))
     }
-
-    pub async fn execute(self) -> Result<Response> {
-        let request = self.prepare().await?;
-
-        info!("{} {}", request.method(), request.url());
-
-        let client = reqwest::Client::builder()
-            .user_agent(APP_USER_AGENT)
-            .build()
-            .or_raise(|| "Error building reqwest client".into())?;
-        let resp = client
-            .execute(request)
-            .await
-            .or_raise(|| "Error executing request".into())?;
-
-        Ok(resp)
-    }
 }
 
-fn apply_template(
-    hb: &Handlebars<'_>,
-    value: &Value,
-    variables: &HashMap<&str, &str>,
-) -> Result<Value> {
-    let value = match value {
-        Value::Object(o) => {
-            let m = o
-                .iter()
-                .map(|(k, v)| {
-                    let rendered = apply_template(hb, v, variables)?;
-                    Ok((k.clone(), rendered))
-                })
-                .collect::<Result<Map<String, Value>>>()?;
-
-            Value::Object(m)
-        }
-        Value::Array(a) => {
-            let arr = a
-                .iter()
-                .map(|v| {
-                    let rendered = apply_template(hb, v, variables)?;
-                    Ok(rendered)
-                })
-                .collect::<Result<Vec<Value>>>()?;
-
-            Value::Array(arr)
-        }
-        Value::String(s) => {
-            let s = hb
-                .render_template(s, &variables)
-                .or_raise(|| "Error rendering template".into())?;
-            Value::String(s)
-        }
-        _ => value.clone(),
-    };
-
-    Ok(value)
+#[derive(Default, Debug, Serialize, Deserialize)]
+pub(crate) struct GraphQLPayload {
+    pub(crate) query: String,
+    pub(crate) variables: HashMap<String, Value>,
 }
 
 // #[cfg(test)]

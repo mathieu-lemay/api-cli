@@ -12,8 +12,8 @@ use crate::error::ApiClientError;
 #[derive(Default, Debug, Serialize, Deserialize)]
 pub struct RequestModel {
     pub(crate) info: RequestInfoModel,
-    pub(crate) http: HttpRequestModel,
-    pub(crate) graphql: GraphQLRequestModel,
+    pub(crate) http: Option<HttpRequestModel>,
+    pub(crate) graphql: Option<GraphQLRequestModel>,
     #[serde(default)]
     pub(crate) runtime: RequestRuntimeModel,
 }
@@ -260,7 +260,7 @@ pub struct CollectionRequestModel {
 pub(crate) struct GraphQLBody {
     pub(crate) query: String,
     #[serde(default)]
-    pub(crate) variables: HashMap<String, Value>,
+    pub(crate) variables: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
