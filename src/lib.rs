@@ -5,7 +5,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use base64::prelude::BASE64_STANDARD;
 use base64::Engine;
-use exn::ResultExt;
+use exn::{OptionExt, ResultExt};
 use handlebars::Handlebars;
 use log::{debug, info};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
@@ -80,8 +80,18 @@ impl ApiClientRequest {
         debug!("Request variables: {:#?}", variables);
 
         let reqable: Box<&dyn Requestable> = match self.request.info.type_ {
-            RequestType::Http => Box::new(self.request.http.as_ref().unwrap()),
-            RequestType::GraphQL => Box::new(self.request.graphql.as_ref().unwrap()),
+            RequestType::Http => Box::new(
+                self.request
+                    .http
+                    .as_ref()
+                    .ok_or_raise(|| "missing `http` request data".into())?,
+            ),
+            RequestType::GraphQL => Box::new(
+                self.request
+                    .graphql
+                    .as_ref()
+                    .ok_or_raise(|| "missing `graphql` request data".into())?,
+            ),
         };
 
         let url = reqable
