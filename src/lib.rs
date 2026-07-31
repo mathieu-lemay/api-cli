@@ -84,9 +84,9 @@ impl ApiClientRequest {
             RequestType::GraphQL => Box::new(self.request.graphql.as_ref().unwrap()),
         };
 
-        let url = hb
-            .render_template(reqable.url(), &variables)
-            .or_raise(|| "Error rendering template".into())?;
+        let url = reqable
+            .url(&hb, &variables)
+            .or_raise(|| "Error getting URL".into())?;
 
         let method = reqwest::Method::from_str(reqable.method().as_str()).expect("invalid method");
         let url = reqwest::Url::parse(&url).expect("invalid url");
@@ -252,12 +252,10 @@ fn apply_template(
 
 #[async_trait]
 pub(crate) trait Requestable {
-    fn url(&self) -> &str;
+    fn url(&self, hb: &Handlebars<'_>, variables: &HashMap<&str, &str>) -> Result<String>;
     fn method(&self) -> &HttpMethod;
     fn headers(&self) -> &NameValueList;
     fn query_params(&self) -> Vec<(&str, &str)>;
-    #[allow(dead_code)]
-    fn path_params(&self) -> Vec<(&str, &str)>;
     fn auth(&self) -> &HttpAuth;
 
     async fn build_request_body(
@@ -270,8 +268,13 @@ pub(crate) trait Requestable {
 
 #[async_trait]
 impl Requestable for HttpRequestModel {
-    fn url(&self) -> &str {
-        &self.url
+    fn url(&self, hb: &Handlebars<'_>, variables: &HashMap<&str, &str>) -> Result<String> {
+        // TODO: Path params
+        let url = hb
+            .render_template(&self.url, &variables)
+            .or_raise(|| "Error rendering template".into())?;
+
+        Ok(url)
     }
 
     fn method(&self) -> &HttpMethod {
@@ -284,10 +287,6 @@ impl Requestable for HttpRequestModel {
 
     fn query_params(&self) -> Vec<(&str, &str)> {
         self.params.get_query_params()
-    }
-
-    fn path_params(&self) -> Vec<(&str, &str)> {
-        self.params.get_path_params()
     }
 
     fn auth(&self) -> &HttpAuth {
@@ -376,8 +375,12 @@ impl Requestable for HttpRequestModel {
 
 #[async_trait]
 impl Requestable for GraphQLRequestModel {
-    fn url(&self) -> &str {
-        &self.url
+    fn url(&self, hb: &Handlebars<'_>, variables: &HashMap<&str, &str>) -> Result<String> {
+        let url = hb
+            .render_template(&self.url, &variables)
+            .or_raise(|| "Error rendering template".into())?;
+
+        Ok(url)
     }
 
     fn method(&self) -> &HttpMethod {
@@ -389,10 +392,6 @@ impl Requestable for GraphQLRequestModel {
     }
 
     fn query_params(&self) -> Vec<(&str, &str)> {
-        Vec::new()
-    }
-
-    fn path_params(&self) -> Vec<(&str, &str)> {
         Vec::new()
     }
 
