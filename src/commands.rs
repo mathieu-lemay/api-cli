@@ -53,11 +53,11 @@ pub enum Command {
 
     /// Manage collections
     #[command(subcommand)]
-    Environment(EnvironmentCmd),
+    Collection(CollectionCmd),
 
     /// Manage environments
     #[command(subcommand)]
-    Collection(CollectionCmd),
+    Environment(EnvironmentCmd),
 
     /// Manage requests
     #[command(subcommand)]

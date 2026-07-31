@@ -90,7 +90,7 @@ fn find_requests_in_directory(collection_dir: &Path, dir: &Path) -> Result<Vec<S
         // TODO: Put collection def somewhere else, or put requests in their own
         // subfolder
         let name = path.file_name().unwrap();
-        if name == "collection.yml" || name == "environments" {
+        if name == "opencollection.yml" || name == "folder.yml" || name == "environments" {
             continue;
         }
 
@@ -99,7 +99,7 @@ fn find_requests_in_directory(collection_dir: &Path, dir: &Path) -> Result<Vec<S
             continue;
         }
 
-        if path.extension().unwrap_or(OsStr::new("")) != "yaml" {
+        if path.extension().unwrap_or(OsStr::new("")) != "yml" {
             continue;
         }
 

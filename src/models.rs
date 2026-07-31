@@ -1,8 +1,8 @@
 use std::collections::HashMap;
-use std::fmt;
 use std::marker::PhantomData;
 use std::str::FromStr;
-
+use std::{default, fmt};
+use reqwest::dns::Name;
 use serde::de::{Error as _, MapAccess, SeqAccess, Visitor};
 use serde::{de, Deserialize, Deserializer, Serialize};
 use serde_json::Value;
@@ -30,7 +30,7 @@ pub(crate) struct RequestInfoModel {
 pub(crate) enum RequestType {
     #[default]
     Http,
-    GraphQL
+    GraphQL,
 }
 
 #[derive(Default, Debug, Serialize, Deserialize)]
@@ -58,6 +58,8 @@ where
                 .map(|(k, v)| NameValuePair {
                     name: k.into(),
                     value: v.into(),
+                    description: None,
+                    is_secret: false,
                     disabled: None,
                 })
                 .collect(),
@@ -76,7 +78,11 @@ impl<'a> NameValueList {
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct NameValuePair {
     pub(crate) name: String,
+    #[serde(default)]
     pub(crate) value: String,
+    pub(crate) description: Option<String>,
+    #[serde(default, rename = "secret")]
+    pub(crate) is_secret: bool,
     // TODO: check serde_bool
     pub(crate) disabled: Option<bool>,
 }
