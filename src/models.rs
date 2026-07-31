@@ -1,8 +1,8 @@
 use std::collections::HashMap;
+use std::fmt;
 use std::marker::PhantomData;
 use std::str::FromStr;
-use std::{default, fmt};
-use reqwest::dns::Name;
+
 use serde::de::{Error as _, MapAccess, SeqAccess, Visitor};
 use serde::{de, Deserialize, Deserializer, Serialize};
 use serde_json::Value;
@@ -143,6 +143,7 @@ impl<'a> HttpParamList {
     }
 
     // TODO: Handle path params
+    #[allow(dead_code)]
     pub(crate) fn get_path_params(&'a self) -> Vec<(&'a str, &'a str)> {
         self.items()
             .filter(|i| i.type_ == HttpParamType::Path)
@@ -282,11 +283,6 @@ pub(crate) struct HttpTextBody {
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct HttpJsonBody {
     pub(crate) data: Value,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub(crate) struct HttpGraphQLBody {
-    pub(crate) graphql: GraphQLBody,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

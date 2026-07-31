@@ -158,8 +158,7 @@ impl ApiClientRequest {
 
         if let Some(v) = &self.global_variables {
             variables.extend(
-                v
-                    .iter()
+                v.iter()
                     .map(|(k, v)| (k.as_str(), v.as_str()))
                     .collect::<HashMap<&str, &str>>(),
             );
@@ -175,8 +174,7 @@ impl ApiClientRequest {
 
         if let Some(v) = &self.override_variables {
             variables.extend(
-                v
-                    .iter()
+                v.iter()
                     .map(|(k, v)| (k.as_str(), v.as_str()))
                     .collect::<HashMap<&str, &str>>(),
             );
@@ -185,10 +183,10 @@ impl ApiClientRequest {
         variables
     }
 
-    async fn build_http_request_body<'a>(
+    async fn build_http_request_body(
         &self,
         req: reqwest::RequestBuilder,
-        hb: &'a Handlebars<'_>,
+        hb: &Handlebars<'_>,
         variables: &HashMap<&str, &str>,
     ) -> Result<reqwest::RequestBuilder> {
         let body = match &self.request.http.body {
@@ -264,10 +262,10 @@ impl ApiClientRequest {
         Ok(req)
     }
 
-    async fn build_graphql_request_body<'a>(
+    async fn build_graphql_request_body(
         &self,
         req: reqwest::RequestBuilder,
-        hb: &'a Handlebars<'_>,
+        hb: &Handlebars<'_>,
         variables: &HashMap<&str, &str>,
     ) -> Result<reqwest::RequestBuilder> {
         let body = &self.request.graphql.body;
@@ -281,12 +279,12 @@ impl ApiClientRequest {
 
             for (k, v) in body.variables.iter() {
                 let key = hb
-                    .render_template(&k, &variables)
+                    .render_template(k, &variables)
                     .or_raise(|| "Error rendering template".into())?;
 
                 // let value = serde_json::to_string(v)?;
                 // let value = hb.render_template(&value, &variables)?;
-                let value = apply_template(&hb, v, &variables)?;
+                let value = apply_template(hb, v, variables)?;
 
                 vars.insert(key, value);
             }
@@ -336,7 +334,7 @@ fn apply_template(
         }
         Value::Array(a) => {
             let arr = a
-                .into_iter()
+                .iter()
                 .map(|v| {
                     let rendered = apply_template(hb, v, variables)?;
                     Ok(rendered)
@@ -347,7 +345,7 @@ fn apply_template(
         }
         Value::String(s) => {
             let s = hb
-                .render_template(&s, &variables)
+                .render_template(s, &variables)
                 .or_raise(|| "Error rendering template".into())?;
             Value::String(s)
         }
