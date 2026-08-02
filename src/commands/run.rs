@@ -47,7 +47,7 @@ pub async fn execute_request(args: RunArgs) -> Result<()> {
     };
 
     let request_start = Instant::now();
-    let res = req.execute().await.expect("error performing request");
+    let res = req.execute().await.or_raise(|| "request failed".into())?;
     let request_duration = request_start.elapsed();
 
     match args.output_format {

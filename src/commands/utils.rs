@@ -24,7 +24,7 @@ pub fn get_collections_directory() -> PathBuf {
 pub fn get_collection_file_path(name: &str) -> PathBuf {
     let mut p = PathBuf::from(API_CLI_BASE_DIRECTORY.as_os_str());
     p.push(name);
-    p.push("collection.yaml");
+    p.push("opencollection.yml");
 
     p
 }
@@ -33,7 +33,7 @@ pub fn get_environment_file_path(collection_name: &str, environment_name: &str) 
     let mut p = PathBuf::from(API_CLI_BASE_DIRECTORY.as_os_str());
     p.push(collection_name);
     p.push("environments");
-    p.push(format!("{}.yaml", environment_name));
+    p.push(format!("{}.yml", environment_name));
 
     p
 }
@@ -42,7 +42,7 @@ pub fn get_request_file_path(collection_name: &str, request_name: &str) -> PathB
     let mut p = PathBuf::from(API_CLI_BASE_DIRECTORY.as_os_str());
     p.push(collection_name);
     // TODO: Use `:` everywhere
-    p.push(format!("{}.yaml", request_name.replace(':', "/")));
+    p.push(format!("{}.yml", request_name.replace(':', "/")));
 
     p
 }

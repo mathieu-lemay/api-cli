@@ -93,7 +93,7 @@ fn find_environments_in_directory(collection_dir: PathBuf) -> Result<Vec<String>
     {
         let path = entry.or_raise(|| "Invalid directory entry".into())?.path();
 
-        if path.extension().unwrap_or(OsStr::new("")) != "yaml" {
+        if path.extension().unwrap_or(OsStr::new("")) != "yml" {
             continue;
         }
 
@@ -101,7 +101,7 @@ fn find_environments_in_directory(collection_dir: PathBuf) -> Result<Vec<String>
             .file_name()
             .unwrap()
             .to_string_lossy()
-            .strip_suffix(".yaml")
+            .strip_suffix(".yml")
             .unwrap()
             .to_string();
 

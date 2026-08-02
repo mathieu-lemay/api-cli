@@ -1,0 +1,5 @@
+name: GitHub
+variables:
+  - name: host
+    value: https://api.github.com
+    description: ""

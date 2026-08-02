@@ -2,19 +2,32 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::time::Duration;
 
+use async_trait::async_trait;
 use base64::prelude::BASE64_STANDARD;
 use base64::Engine;
-use exn::ResultExt;
+use exn::{OptionExt, ResultExt};
 use handlebars::Handlebars;
 use log::{debug, info};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use reqwest::{Request, Response};
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+use crate::auth::{get_auth, Auth};
 use crate::error::Result;
 pub use crate::models::{CollectionModel, EnvironmentModel, RequestModel};
-use crate::models::{GraphGLBody, HttpAuth, HttpBody};
+use crate::models::{
+    FormValueType,
+    GraphQLRequestModel,
+    HttpAuth,
+    HttpBody,
+    HttpMethod,
+    HttpRequestModel,
+    NameValueList,
+    RequestType,
+};
 
+mod auth;
 pub mod error;
 mod models;
 
@@ -55,50 +68,45 @@ impl ApiClientRequest {
         self
     }
 
-    fn prepare(self) -> Result<Request> {
+    async fn prepare(self) -> Result<Request> {
         let hb = {
             let mut hb = handlebars::Handlebars::new();
             hb.set_strict_mode(true);
             hb
         };
 
-        let global_vars = self.global_variables.unwrap_or_default();
-        let env = self.environment.unwrap_or_default();
-        let override_vars = self.override_variables.unwrap_or_default();
-
-        let mut variables = HashMap::new();
-        variables.extend(
-            global_vars
-                .iter()
-                .map(|(k, v)| (k.as_str(), v.as_str()))
-                .collect::<HashMap<&str, &str>>(),
-        );
-        variables.extend(self.collection.vars.as_map());
-        variables.extend(env.vars.as_map());
-        variables.extend(self.request.vars.pre_request.as_map());
-        variables.extend(
-            override_vars
-                .iter()
-                .map(|(k, v)| (k.as_str(), v.as_str()))
-                .collect::<HashMap<&str, &str>>(),
-        );
+        let variables = self.merge_variables();
 
         debug!("Request variables: {:#?}", variables);
 
-        let url = hb
-            .render_template(&self.request.http.url, &variables)
-            .or_raise(|| "Error rendering template".into())?;
+        let reqable: Box<&dyn Requestable> = match self.request.info.type_ {
+            RequestType::Http => Box::new(
+                self.request
+                    .http
+                    .as_ref()
+                    .ok_or_raise(|| "missing `http` request data".into())?,
+            ),
+            RequestType::GraphQL => Box::new(
+                self.request
+                    .graphql
+                    .as_ref()
+                    .ok_or_raise(|| "missing `graphql` request data".into())?,
+            ),
+        };
 
-        let method =
-            reqwest::Method::from_str(self.request.http.method.as_str()).expect("invalid method");
+        let url = reqable
+            .url(&hb, &variables)
+            .or_raise(|| "Error getting URL".into())?;
+
+        let method = reqwest::Method::from_str(reqable.method().as_str()).expect("invalid method");
         let url = reqwest::Url::parse(&url).expect("invalid url");
 
         let headers = {
             let mut h = HeaderMap::new();
 
-            for i in self.collection.headers.items() {
+            for i in self.collection.request.headers.items() {
                 let key = hb
-                    .render_template(&i.key, &variables)
+                    .render_template(&i.name, &variables)
                     .or_raise(|| "Error rendering template".into())?;
                 let val = hb
                     .render_template(&i.value, &variables)
@@ -111,9 +119,9 @@ impl ApiClientRequest {
                 );
             }
 
-            for i in self.request.http.headers.items() {
+            for i in reqable.headers().items() {
                 let key = hb
-                    .render_template(&i.key, &variables)
+                    .render_template(&i.name, &variables)
                     .or_raise(|| "Error rendering template".into())?;
                 let val = hb
                     .render_template(&i.value, &variables)
@@ -132,110 +140,70 @@ impl ApiClientRequest {
         let mut req = reqwest::Client::new()
             .request(method, url)
             .headers(headers)
-            .query(&self.request.http.params.get_query_params());
+            .query(&reqable.query_params());
 
-        if let Some(auth) = self.request.http.auth.or(self.collection.auth) {
-            req = match auth {
-                HttpAuth::None => req,
-                HttpAuth::Basic(b) => {
-                    let username = hb
-                        .render_template(&b.username, &variables)
-                        .or_raise(|| "Error rendering template".into())?;
-                    let password = Some(
-                        hb.render_template(&b.password, &variables)
-                            .or_raise(|| "Error rendering template".into())?,
-                    );
+        let auth = get_auth(reqable.auth(), &self.collection.request.auth)
+            .or_raise(|| "Error getting request auth".into())?;
+        req = match auth {
+            Auth::None => req,
+            Auth::Basic { username, password } => {
+                let username = hb
+                    .render_template(&username, &variables)
+                    .or_raise(|| "Error rendering template".into())?;
+                let password = Some(
+                    hb.render_template(&password, &variables)
+                        .or_raise(|| "Error rendering template".into())?,
+                );
 
-                    req.basic_auth(username, password)
-                }
-                HttpAuth::Bearer(t) => {
-                    let token = hb
-                        .render_template(&t.token, &variables)
-                        .or_raise(|| "Error rendering template".into())?;
-                    req.bearer_auth(token)
-                }
+                req.basic_auth(username, password)
             }
-        }
-
-        if let Some(body) = self.request.http.body {
-            req = match body {
-                HttpBody::Text(t) => {
-                    let text = hb
-                        .render_template(&t.text, &variables)
-                        .or_raise(|| "Error rendering template".into())?;
-                    req.header("Content-Type", "text/plain").body(text)
-                }
-                HttpBody::Json(j) => {
-                    // TODO: Find a better way than re/deserializing.
-                    let json_str = serde_json::to_string(&j.json)
-                        .or_raise(|| "Error serializing json".into())?;
-                    let json_str = hb
-                        .render_template(&json_str, &variables)
-                        .or_raise(|| "Error rendering template".into())?;
-                    let json: Value = serde_json::from_str(&json_str)
-                        .or_raise(|| "Error deserializing json".into())?;
-
-                    req.json(&json)
-                }
-                HttpBody::GraphQL(g) => {
-                    let query = hb
-                        .render_template(&g.graphql.query, &variables)
-                        .or_raise(|| "Error rendering template".into())?;
-
-                    let variables = {
-                        let mut vars = HashMap::new();
-
-                        for (k, v) in g.graphql.variables.into_iter() {
-                            let key = hb
-                                .render_template(&k, &variables)
-                                .or_raise(|| "Error rendering template".into())?;
-
-                            // let value = serde_json::to_string(v)?;
-                            // let value = hb.render_template(&value, &variables)?;
-                            let value = apply_template(&hb, v, &variables)?;
-
-                            vars.insert(key, value);
-                        }
-
-                        vars
-                    };
-
-                    let payload = GraphGLBody { query, variables };
-
-                    req.json(&payload)
-                }
-                HttpBody::Binary(b) => {
-                    let body = hb
-                        .render_template(&b.binary, &variables)
-                        .or_raise(|| "Error rendering template".into())?;
-
-                    // TODO Manage Error
-                    req.header("Content-Type", "application/x-www-form-urlencoded")
-                        .body(BASE64_STANDARD.decode(body).expect("invalid base64"))
-                }
-                HttpBody::Form(f) => {
-                    let mut form = HashMap::new();
-                    for i in f.form.items() {
-                        form.insert(
-                            hb.render_template(&i.key, &variables)
-                                .or_raise(|| "Error rendering template".into())?,
-                            hb.render_template(&i.value, &variables)
-                                .or_raise(|| "Error rendering template".into())?,
-                        );
-                    }
-
-                    req.form(&form)
-                }
+            Auth::Bearer { token } => {
+                let token = hb
+                    .render_template(&token, &variables)
+                    .or_raise(|| "Error rendering template".into())?;
+                req.bearer_auth(token)
             }
-        }
+        };
+
+        req = reqable.build_request_body(req, &hb, &variables).await?;
 
         req = req.timeout(Duration::from_secs(60));
 
         req.build().or_raise(|| "Error building request".into())
     }
 
+    fn merge_variables(&self) -> HashMap<&str, &str> {
+        let mut variables = HashMap::new();
+
+        if let Some(v) = &self.global_variables {
+            variables.extend(
+                v.iter()
+                    .map(|(k, v)| (k.as_str(), v.as_str()))
+                    .collect::<HashMap<&str, &str>>(),
+            );
+        }
+
+        variables.extend(self.collection.request.variables.as_map());
+
+        if let Some(env) = &self.environment {
+            variables.extend(env.variables.as_map());
+        }
+
+        variables.extend(self.request.runtime.variables.as_map());
+
+        if let Some(v) = &self.override_variables {
+            variables.extend(
+                v.iter()
+                    .map(|(k, v)| (k.as_str(), v.as_str()))
+                    .collect::<HashMap<&str, &str>>(),
+            );
+        }
+
+        variables
+    }
+
     pub async fn execute(self) -> Result<Response> {
-        let request = self.prepare()?;
+        let request = self.prepare().await?;
 
         info!("{} {}", request.method(), request.url());
 
@@ -254,16 +222,16 @@ impl ApiClientRequest {
 
 fn apply_template(
     hb: &Handlebars<'_>,
-    value: Value,
+    value: &Value,
     variables: &HashMap<&str, &str>,
 ) -> Result<Value> {
     let value = match value {
         Value::Object(o) => {
             let m = o
-                .into_iter()
+                .iter()
                 .map(|(k, v)| {
                     let rendered = apply_template(hb, v, variables)?;
-                    Ok((k, rendered))
+                    Ok((k.clone(), rendered))
                 })
                 .collect::<Result<Map<String, Value>>>()?;
 
@@ -271,7 +239,7 @@ fn apply_template(
         }
         Value::Array(a) => {
             let arr = a
-                .into_iter()
+                .iter()
                 .map(|v| {
                     let rendered = apply_template(hb, v, variables)?;
                     Ok(rendered)
@@ -282,14 +250,205 @@ fn apply_template(
         }
         Value::String(s) => {
             let s = hb
-                .render_template(&s, &variables)
+                .render_template(s, &variables)
                 .or_raise(|| "Error rendering template".into())?;
             Value::String(s)
         }
-        _ => value,
+        _ => value.clone(),
     };
 
     Ok(value)
+}
+
+#[async_trait]
+pub(crate) trait Requestable {
+    fn url(&self, hb: &Handlebars<'_>, variables: &HashMap<&str, &str>) -> Result<String>;
+    fn method(&self) -> &HttpMethod;
+    fn headers(&self) -> &NameValueList;
+    fn query_params(&self) -> Vec<(&str, &str)>;
+    fn auth(&self) -> &HttpAuth;
+
+    async fn build_request_body(
+        &self,
+        req: reqwest::RequestBuilder,
+        hb: &Handlebars<'_>,
+        variables: &HashMap<&str, &str>,
+    ) -> Result<reqwest::RequestBuilder>;
+}
+
+#[async_trait]
+impl Requestable for HttpRequestModel {
+    fn url(&self, hb: &Handlebars<'_>, variables: &HashMap<&str, &str>) -> Result<String> {
+        // TODO: Path params
+        let url = hb
+            .render_template(&self.url, &variables)
+            .or_raise(|| "Error rendering template".into())?;
+
+        Ok(url)
+    }
+
+    fn method(&self) -> &HttpMethod {
+        &self.method
+    }
+
+    fn headers(&self) -> &NameValueList {
+        &self.headers
+    }
+
+    fn query_params(&self) -> Vec<(&str, &str)> {
+        self.params.get_query_params()
+    }
+
+    fn auth(&self) -> &HttpAuth {
+        &self.auth
+    }
+
+    async fn build_request_body(
+        &self,
+        req: reqwest::RequestBuilder,
+        hb: &Handlebars<'_>,
+        variables: &HashMap<&str, &str>,
+    ) -> Result<reqwest::RequestBuilder> {
+        let body = match &self.body {
+            Some(b) => b,
+            None => return Ok(req),
+        };
+
+        let req = match body {
+            HttpBody::Text(t) => {
+                let text = hb
+                    .render_template(&t.data, &variables)
+                    .or_raise(|| "Error rendering template".into())?;
+                req.header("Content-Type", "text/plain").body(text)
+            }
+            HttpBody::Json(j) => {
+                let json_str = hb
+                    .render_template(&j.data, &variables)
+                    .or_raise(|| "Error rendering template".into())?;
+                let json: Value = serde_json::from_str(&json_str)
+                    .or_raise(|| "Error deserializing json".into())?;
+
+                req.json(&json)
+            }
+            HttpBody::Binary(b) => {
+                let body = hb
+                    .render_template(&b.binary, &variables)
+                    .or_raise(|| "Error rendering template".into())?;
+
+                // TODO Manage Error
+                req.header("Content-Type", "application/x-www-form-urlencoded")
+                    .body(BASE64_STANDARD.decode(body).expect("invalid base64"))
+            }
+            HttpBody::FormUrlEncoded(f) => {
+                let mut form = HashMap::new();
+                for i in f.data.items() {
+                    form.insert(
+                        hb.render_template(&i.name, &variables)
+                            .or_raise(|| "Error rendering template".into())?,
+                        hb.render_template(&i.value, &variables)
+                            .or_raise(|| "Error rendering template".into())?,
+                    );
+                }
+
+                req.form(&form)
+            }
+            HttpBody::MultipartForm(f) => {
+                let mut form = reqwest::multipart::Form::new();
+                for i in f.data.items() {
+                    match i.type_ {
+                        FormValueType::Text => {
+                            form = form.text(
+                                i.name.clone(),
+                                hb.render_template(&i.value, &variables)
+                                    .or_raise(|| "Error rendering template".into())?,
+                            );
+                        }
+                        FormValueType::File => {
+                            form = form
+                                .file(i.name.clone(), i.value.clone())
+                                .await
+                                .or_raise(|| "Invalid file".into())?;
+                        }
+                    }
+                }
+
+                req.multipart(form)
+            }
+        };
+
+        Ok(req)
+    }
+}
+
+#[async_trait]
+impl Requestable for GraphQLRequestModel {
+    fn url(&self, hb: &Handlebars<'_>, variables: &HashMap<&str, &str>) -> Result<String> {
+        let url = hb
+            .render_template(&self.url, &variables)
+            .or_raise(|| "Error rendering template".into())?;
+
+        Ok(url)
+    }
+
+    fn method(&self) -> &HttpMethod {
+        &self.method
+    }
+
+    fn headers(&self) -> &NameValueList {
+        &self.headers
+    }
+
+    fn query_params(&self) -> Vec<(&str, &str)> {
+        Vec::new()
+    }
+
+    fn auth(&self) -> &HttpAuth {
+        &self.auth
+    }
+
+    async fn build_request_body(
+        &self,
+        req: reqwest::RequestBuilder,
+        hb: &Handlebars<'_>,
+        variables: &HashMap<&str, &str>,
+    ) -> Result<reqwest::RequestBuilder> {
+        let body = &self.body;
+
+        let query = hb
+            .render_template(&body.query, &variables)
+            .or_raise(|| "Error rendering template".into())?;
+
+        let variables = {
+            let mut vars = HashMap::new();
+
+            let gql_vars: Map<String, Value> = serde_json::from_str(&body.variables)
+                .or_raise(|| "Error parsing GraphQL variables".into())?;
+
+            for (k, v) in gql_vars.iter() {
+                let key = hb
+                    .render_template(k, &variables)
+                    .or_raise(|| "Error rendering template".into())?;
+
+                // let value = serde_json::to_string(v)?;
+                // let value = hb.render_template(&value, &variables)?;
+                let value = apply_template(hb, v, variables)?;
+
+                vars.insert(key, value);
+            }
+
+            vars
+        };
+
+        let payload = GraphQLPayload { query, variables };
+
+        Ok(req.json(&payload))
+    }
+}
+
+#[derive(Default, Debug, Serialize, Deserialize)]
+pub(crate) struct GraphQLPayload {
+    pub(crate) query: String,
+    pub(crate) variables: HashMap<String, Value>,
 }
 
 #[cfg(test)]
@@ -306,22 +465,28 @@ mod tests {
     use wiremock::{http, matchers, Match, Mock, MockServer, Request, ResponseTemplate};
 
     use crate::models::{
-        GraphGLBody,
+        FormValue,
+        FormValueList,
+        GraphQLBody,
+        GraphQLRequestModel,
         HttpAuth,
         HttpBasicAuth,
         HttpBearerToken,
         HttpBinaryBody,
         HttpBody,
         HttpFormBody,
-        HttpGraphQLBody,
         HttpJsonBody,
         HttpMethod,
-        HttpParamsModel,
+        HttpMultipartFormBody,
+        HttpParam,
+        HttpParamList,
         HttpRequestModel,
         HttpTextBody,
-        KeyValueList,
-        KeyValuePair,
-        RequestVarsModel,
+        NameValueList,
+        NameValuePair,
+        RequestInfoModel,
+        RequestRuntimeModel,
+        RequestType,
     };
     use crate::{ApiClientRequest, CollectionModel, RequestModel};
 
@@ -353,9 +518,9 @@ mod tests {
     }
 
     // Check that the body contains exactly the following form items
-    pub struct FormDataMatcher(HashMap<String, String>);
+    pub struct UrlEncodedFormDataMatcher(HashMap<String, String>);
 
-    impl Match for FormDataMatcher {
+    impl Match for UrlEncodedFormDataMatcher {
         fn matches(&self, request: &Request) -> bool {
             let values: HashMap<String, String> = match serde_urlencoded::from_bytes(&request.body)
             {
@@ -364,6 +529,28 @@ mod tests {
             };
 
             values == self.0
+        }
+    }
+
+    // Check that the body contains exactly the following form items
+    pub struct MultipartFormDataMatcher(HashMap<String, String>);
+
+    impl Match for MultipartFormDataMatcher {
+        fn matches(&self, request: &Request) -> bool {
+            let form_data = String::from_utf8(request.body.to_vec()).unwrap();
+
+            for (k, v) in &self.0 {
+                let expected_key = format!("Content-Disposition: form-data; name=\"{}\"", k);
+                if !form_data.contains(&expected_key) {
+                    return false;
+                }
+
+                if !form_data.contains(v) {
+                    return false;
+                }
+            }
+
+            true
         }
     }
 
@@ -377,17 +564,18 @@ mod tests {
             .await;
 
         let request = RequestModel {
-            http: HttpRequestModel {
+            http: Some(HttpRequestModel {
                 method: HttpMethod::Get,
                 url: test_server.base_url,
                 ..Default::default()
-            },
-            vars: Default::default(),
+            }),
+            ..Default::default()
         };
 
         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
 
-        api_request.execute().await.expect("request failed");
+        let resp = api_request.execute().await.expect("request failed");
+        assert_eq!(resp.status(), StatusCode::OK);
     }
 
     #[tokio::test]
@@ -402,12 +590,12 @@ mod tests {
             .await;
 
         let request = RequestModel {
-            http: HttpRequestModel {
+            http: Some(HttpRequestModel {
                 method: HttpMethod::Get,
                 url: format!("{}{}", test_server.base_url, path),
                 ..Default::default()
-            },
-            vars: Default::default(),
+            }),
+            ..Default::default()
         };
 
         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
@@ -429,12 +617,12 @@ mod tests {
             .await;
 
         let request = RequestModel {
-            http: HttpRequestModel {
+            http: Some(HttpRequestModel {
                 method,
                 url: test_server.base_url,
                 ..Default::default()
-            },
-            vars: Default::default(),
+            }),
+            ..Default::default()
         };
 
         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
@@ -453,23 +641,23 @@ mod tests {
             .await;
 
         let request = RequestModel {
-            http: HttpRequestModel {
+            http: Some(HttpRequestModel {
                 url: test_server.base_url,
-                headers: KeyValueList::new(vec![
-                    KeyValuePair {
-                        key: "X-Test-Header-1".to_string(),
+                headers: NameValueList::new(vec![
+                    NameValuePair {
+                        name: "X-Test-Header-1".to_string(),
                         value: "some-test-value".to_string(),
-                        enabled: Some(true),
+                        ..Default::default()
                     },
-                    KeyValuePair {
-                        key: "X-Test-Header-2".to_string(),
+                    NameValuePair {
+                        name: "X-Test-Header-2".to_string(),
                         value: "other-test-value".to_string(),
-                        enabled: Some(true),
+                        ..Default::default()
                     },
                 ]),
                 ..Default::default()
-            },
-            vars: Default::default(),
+            }),
+            ..Default::default()
         };
 
         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
@@ -495,28 +683,31 @@ mod tests {
         .await;
 
         let request = RequestModel {
-            http: HttpRequestModel {
+            http: Some(HttpRequestModel {
                 url: test_server.base_url,
-                headers: KeyValueList::new(vec![
-                    KeyValuePair {
-                        key: "explicit-enabled".to_string(),
+                headers: NameValueList::new(vec![
+                    NameValuePair {
+                        name: "explicit-enabled".to_string(),
                         value: "explicit-enabled-value".to_string(),
-                        enabled: Some(true),
+                        disabled: Some(false),
+                        ..Default::default()
                     },
-                    KeyValuePair {
-                        key: "implicit-enabled".to_string(),
+                    NameValuePair {
+                        name: "implicit-enabled".to_string(),
                         value: "implicit-enabled-value".to_string(),
-                        enabled: None,
+                        disabled: None,
+                        ..Default::default()
                     },
-                    KeyValuePair {
-                        key: "disabled".to_string(),
+                    NameValuePair {
+                        name: "disabled".to_string(),
                         value: "disabled-value".to_string(),
-                        enabled: Some(false),
+                        disabled: Some(true),
+                        ..Default::default()
                     },
                 ]),
                 ..Default::default()
-            },
-            vars: Default::default(),
+            }),
+            ..Default::default()
         };
 
         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
@@ -535,25 +726,23 @@ mod tests {
             .await;
 
         let request = RequestModel {
-            http: HttpRequestModel {
+            http: Some(HttpRequestModel {
                 url: test_server.base_url,
-                params: HttpParamsModel {
-                    query: KeyValueList::new(vec![
-                        KeyValuePair {
-                            key: "param1".to_string(),
-                            value: "value1".to_string(),
-                            enabled: Some(true),
-                        },
-                        KeyValuePair {
-                            key: "param2".to_string(),
-                            value: "value2".to_string(),
-                            enabled: Some(true),
-                        },
-                    ]),
-                },
+                params: HttpParamList::new(vec![
+                    HttpParam {
+                        name: "param1".to_string(),
+                        value: "value1".to_string(),
+                        ..Default::default()
+                    },
+                    HttpParam {
+                        name: "param2".to_string(),
+                        value: "value2".to_string(),
+                        ..Default::default()
+                    },
+                ]),
                 ..Default::default()
-            },
-            vars: Default::default(),
+            }),
+            ..Default::default()
         };
 
         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
@@ -579,30 +768,31 @@ mod tests {
         .await;
 
         let request = RequestModel {
-            http: HttpRequestModel {
+            http: Some(HttpRequestModel {
                 url: test_server.base_url,
-                params: HttpParamsModel {
-                    query: KeyValueList::new(vec![
-                        KeyValuePair {
-                            key: "explicit-enabled".to_string(),
-                            value: "explicit-enabled-value".to_string(),
-                            enabled: Some(true),
-                        },
-                        KeyValuePair {
-                            key: "implicit-enabled".to_string(),
-                            value: "implicit-enabled-value".to_string(),
-                            enabled: None,
-                        },
-                        KeyValuePair {
-                            key: "disabled".to_string(),
-                            value: "disabled-value".to_string(),
-                            enabled: Some(false),
-                        },
-                    ]),
-                },
+                params: HttpParamList::new(vec![
+                    HttpParam {
+                        name: "explicit-enabled".to_string(),
+                        value: "explicit-enabled-value".to_string(),
+                        disabled: Some(false),
+                        ..Default::default()
+                    },
+                    HttpParam {
+                        name: "implicit-enabled".to_string(),
+                        value: "implicit-enabled-value".to_string(),
+                        disabled: None,
+                        ..Default::default()
+                    },
+                    HttpParam {
+                        name: "disabled".to_string(),
+                        value: "disabled-value".to_string(),
+                        disabled: Some(true),
+                        ..Default::default()
+                    },
+                ]),
                 ..Default::default()
-            },
-            vars: Default::default(),
+            }),
+            ..Default::default()
         };
 
         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
@@ -612,9 +802,8 @@ mod tests {
 
     #[rstest]
     #[case::none(HttpAuth::None, None)]
-    #[case::basic(
-        HttpAuth::Basic(HttpBasicAuth{username: "user".to_string(), password: "pass".to_string()}),
-        Some("Basic dXNlcjpwYXNz"),
+    #[case::basic(HttpAuth::Basic(HttpBasicAuth{username: Some("user".to_string()), password:Some(
+"pass".to_string())}), Some("Basic dXNlcjpwYXNz"),
     )]
     #[case::bearer(
         HttpAuth::Bearer(HttpBearerToken{token: "bearer-token".to_string()}),
@@ -635,12 +824,12 @@ mod tests {
             .await;
 
         let request = RequestModel {
-            http: HttpRequestModel {
+            http: Some(HttpRequestModel {
                 url: test_server.base_url,
-                auth: Some(auth),
+                auth,
                 ..Default::default()
-            },
-            vars: Default::default(),
+            }),
+            ..Default::default()
         };
 
         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
@@ -662,14 +851,14 @@ mod tests {
             .await;
 
         let request = RequestModel {
-            http: HttpRequestModel {
+            http: Some(HttpRequestModel {
                 url: test_server.base_url,
                 body: Some(HttpBody::Text(HttpTextBody {
-                    text: body.to_string(),
+                    data: body.to_string(),
                 })),
                 ..Default::default()
-            },
-            vars: Default::default(),
+            }),
+            ..Default::default()
         };
 
         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
@@ -679,22 +868,22 @@ mod tests {
 
     #[tokio::test]
     async fn test_client_sends_json_body() {
-        let body: Value = serde_json::from_str(
-            r#"
-        {
-            "name": "some-name",
-            "flag": true,
-            "id": 123,
-            "data": {
-                "foo": "bar"
+        let body = r#"
+            {
+                "name": "some-name",
+                "flag": true,
+                "id": 123,
+                "data": {
+                    "foo": "bar"
+                }
             }
-        }
-        "#,
-        )
-        .unwrap();
+            "#;
+
+        let expected_body: Value = serde_json::from_str(body).unwrap();
 
         let test_server = spawn_mock_server().await;
-        Mock::given(matchers::body_json(&body))
+        Mock::given(matchers::any())
+            .and(matchers::body_json(expected_body))
             .and(matchers::header("Content-Type", "application/json"))
             // TODO: Check len
             // .and(matchers::header("Content-Length", body.len()))
@@ -704,12 +893,15 @@ mod tests {
             .await;
 
         let request = RequestModel {
-            http: HttpRequestModel {
+            http: Some(HttpRequestModel {
                 url: test_server.base_url,
-                body: Some(HttpBody::Json(HttpJsonBody { json: body })),
+                // url: String::from("https://catchall.mathieulemay.net"),
+                body: Some(HttpBody::Json(HttpJsonBody {
+                    data: body.to_string(),
+                })),
                 ..Default::default()
-            },
-            vars: Default::default(),
+            }),
+            ..Default::default()
         };
 
         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
@@ -720,26 +912,29 @@ mod tests {
     #[tokio::test]
     async fn test_client_sends_graphql_body() {
         let query = r#"
-            query ($user: String!, $filter: Filter!) {
-              user(login: $login) {
-                login
-                name
-                company
-                location
-                repos(filter: $filter) {
-                  nodes {
+                query ($user: String!, $filter: Filter!) {
+                  user(login: $login) {
+                    login
                     name
+                    company
+                    location
+                    repos(filter: $filter) {
+                      nodes {
+                        name
+                      }
+                    }
                   }
                 }
-              }
-            }
-        "#;
+            "#;
 
         let mut filter = Map::new();
         filter.insert("language".to_string(), Value::String("python".to_string()));
         filter.insert(
             "min_stars".to_string(),
-            Value::Number(Number::from_str("420").expect("unable to parse number")),
+            Value::Number(Number::from_str("420").expect(
+                "unable to parse
+    number",
+            )),
         );
 
         let mut variables = Map::new();
@@ -761,17 +956,19 @@ mod tests {
             .await;
 
         let request = RequestModel {
-            http: HttpRequestModel {
-                url: test_server.base_url,
-                body: Some(HttpBody::GraphQL(HttpGraphQLBody {
-                    graphql: GraphGLBody {
-                        query: query.to_string(),
-                        variables: variables.into_iter().collect::<HashMap<String, Value>>(),
-                    },
-                })),
+            info: RequestInfoModel {
+                type_: RequestType::GraphQL,
                 ..Default::default()
             },
-            vars: Default::default(),
+            graphql: Some(GraphQLRequestModel {
+                url: test_server.base_url,
+                body: GraphQLBody {
+                    query: query.to_string(),
+                    variables: serde_json::to_string(&variables).unwrap(),
+                },
+                ..Default::default()
+            }),
+            ..Default::default()
         };
 
         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
@@ -800,14 +997,14 @@ mod tests {
             .await;
 
         let request = RequestModel {
-            http: HttpRequestModel {
+            http: Some(HttpRequestModel {
                 url: test_server.base_url,
                 body: Some(HttpBody::Binary(HttpBinaryBody {
                     binary: BASE64_STANDARD.encode(body),
                 })),
                 ..Default::default()
-            },
-            vars: Default::default(),
+            }),
+            ..Default::default()
         };
 
         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
@@ -816,17 +1013,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_client_sends_form_body() {
+    async fn test_client_sends_form_url_encoded_body() {
         let form = vec![
-            KeyValuePair {
-                key: "name".to_string(),
+            FormValue {
+                name: "name".to_string(),
                 value: "Firstname Lastname".to_string(),
-                enabled: Some(true),
+                disabled: Some(false),
+                ..Default::default()
             },
-            KeyValuePair {
-                key: "email".to_string(),
+            FormValue {
+                name: "email".to_string(),
                 value: "firstname.lastname@example.org".to_string(),
-                enabled: Some(true),
+                disabled: Some(false),
+                ..Default::default()
             },
         ];
 
@@ -839,7 +1038,7 @@ mod tests {
         let expected_len = serde_urlencoded::to_string(&expected_data).unwrap().len();
 
         let test_server = spawn_mock_server().await;
-        Mock::given(FormDataMatcher(expected_data))
+        Mock::given(UrlEncodedFormDataMatcher(expected_data))
             .and(matchers::header(
                 "Content-Type",
                 "application/x-www-form-urlencoded",
@@ -851,14 +1050,14 @@ mod tests {
             .await;
 
         let request = RequestModel {
-            http: HttpRequestModel {
+            http: Some(HttpRequestModel {
                 url: test_server.base_url,
-                body: Some(HttpBody::Form(HttpFormBody {
-                    form: KeyValueList::new(form),
+                body: Some(HttpBody::FormUrlEncoded(HttpFormBody {
+                    data: FormValueList::new(form),
                 })),
                 ..Default::default()
-            },
-            vars: Default::default(),
+            }),
+            ..Default::default()
         };
 
         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
@@ -867,22 +1066,25 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_client_ignores_disabled_form_body() {
+    async fn test_client_ignores_disabled_form_url_encoded_body() {
         let form = vec![
-            KeyValuePair {
-                key: "findme1".to_string(),
+            FormValue {
+                name: "findme1".to_string(),
                 value: "".to_string(),
-                enabled: Some(true),
+                disabled: Some(false),
+                ..Default::default()
             },
-            KeyValuePair {
-                key: "findme2".to_string(),
+            FormValue {
+                name: "findme2".to_string(),
                 value: "".to_string(),
-                enabled: None,
+                disabled: None,
+                ..Default::default()
             },
-            KeyValuePair {
-                key: "ignoreme".to_string(),
+            FormValue {
+                name: "ignoreme".to_string(),
                 value: "".to_string(),
-                enabled: Some(false),
+                disabled: Some(true),
+                ..Default::default()
             },
         ];
         let mut expected_data = HashMap::new();
@@ -891,8 +1093,7 @@ mod tests {
         let expected_len = serde_urlencoded::to_string(&expected_data).unwrap().len();
 
         let test_server = spawn_mock_server().await;
-        Mock::given(matchers::any())
-            .and(FormDataMatcher(expected_data))
+        Mock::given(UrlEncodedFormDataMatcher(expected_data))
             .and(matchers::header(
                 "Content-Type",
                 "application/x-www-form-urlencoded",
@@ -904,14 +1105,119 @@ mod tests {
             .await;
 
         let request = RequestModel {
-            http: HttpRequestModel {
+            http: Some(HttpRequestModel {
                 url: test_server.base_url,
-                body: Some(HttpBody::Form(HttpFormBody {
-                    form: KeyValueList::new(form),
+                body: Some(HttpBody::FormUrlEncoded(HttpFormBody {
+                    data: FormValueList::new(form),
                 })),
                 ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let api_request = ApiClientRequest::new(CollectionModel::default(), request);
+
+        api_request.execute().await.expect("request failed");
+    }
+    #[tokio::test]
+    async fn test_client_sends_multipart_form_body() {
+        let form = vec![
+            FormValue {
+                name: "name".to_string(),
+                value: "Firstname Lastname".to_string(),
+                disabled: Some(false),
+                ..Default::default()
             },
-            vars: Default::default(),
+            FormValue {
+                name: "email".to_string(),
+                value: "firstname.lastname@example.org".to_string(),
+                disabled: Some(false),
+                ..Default::default()
+            },
+        ];
+
+        let mut expected_data = HashMap::new();
+        expected_data.insert("name".to_string(), "Firstname Lastname".to_string());
+        expected_data.insert(
+            "email".to_string(),
+            "firstname.lastname@example.org".to_string(),
+        );
+
+        let test_server = spawn_mock_server().await;
+        Mock::given(matchers::any())
+            .and(MultipartFormDataMatcher(expected_data))
+            .and(matchers::header_regex(
+                "Content-Type",
+                "multipart/form-data; boundary=.*",
+            ))
+            .respond_with(ResponseTemplate::new(StatusCode::OK))
+            .expect(1)
+            .mount(&test_server.mock)
+            .await;
+
+        let request = RequestModel {
+            http: Some(HttpRequestModel {
+                url: test_server.base_url,
+                body: Some(HttpBody::MultipartForm(HttpMultipartFormBody {
+                    data: FormValueList::new(form),
+                })),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let api_request = ApiClientRequest::new(CollectionModel::default(), request);
+
+        api_request.execute().await.expect("request failed");
+    }
+
+    #[tokio::test]
+    async fn test_client_ignores_disabled_multipart_form_body() {
+        let form = vec![
+            FormValue {
+                name: "findme1".to_string(),
+                value: "".to_string(),
+                disabled: Some(false),
+                ..Default::default()
+            },
+            FormValue {
+                name: "findme2".to_string(),
+                value: "".to_string(),
+                disabled: None,
+                ..Default::default()
+            },
+            FormValue {
+                name: "ignoreme".to_string(),
+                value: "".to_string(),
+                disabled: Some(true),
+                ..Default::default()
+            },
+        ];
+        let mut expected_data = HashMap::new();
+        expected_data.insert("findme1".to_string(), "".to_string());
+        expected_data.insert("findme2".to_string(), "".to_string());
+
+        let test_server = spawn_mock_server().await;
+        Mock::given(matchers::any())
+            .and(MultipartFormDataMatcher(expected_data))
+            .and(matchers::header_regex(
+                "Content-Type",
+                "multipart/form-data; boundary=.*",
+            ))
+            .respond_with(ResponseTemplate::new(StatusCode::OK))
+            .expect(1)
+            .mount(&test_server.mock)
+            .await;
+
+        let request = RequestModel {
+            http: Some(HttpRequestModel {
+                url: test_server.base_url,
+                body: Some(HttpBody::MultipartForm(HttpMultipartFormBody {
+                    data: FormValueList::new(form),
+                })),
+                ..Default::default()
+            }),
+            ..Default::default()
         };
 
         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
@@ -931,15 +1237,15 @@ mod tests {
         let variables = [("url", test_server.base_url)];
 
         let request = RequestModel {
-            http: HttpRequestModel {
+            http: Some(HttpRequestModel {
                 method: HttpMethod::Get,
                 url: "{{url}}".to_string(),
                 ..Default::default()
+            }),
+            runtime: RequestRuntimeModel {
+                variables: NameValueList::from(variables),
             },
-            vars: RequestVarsModel {
-                pre_request: KeyValueList::from(variables),
-                ..Default::default()
-            },
+            ..Default::default()
         };
 
         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
@@ -962,19 +1268,19 @@ mod tests {
         let variables = [("username", "a-username"), ("password", "a-password")];
 
         let request = RequestModel {
-            http: HttpRequestModel {
+            http: Some(HttpRequestModel {
                 method: HttpMethod::Get,
                 url: test_server.base_url,
-                auth: Some(HttpAuth::Basic(HttpBasicAuth {
-                    username: "{{username}}".to_string(),
-                    password: "{{password}}".to_string(),
-                })),
+                auth: HttpAuth::Basic(HttpBasicAuth {
+                    username: Some("{{username}}".to_string()),
+                    password: Some("{{password}}".to_string()),
+                }),
                 ..Default::default()
+            }),
+            runtime: RequestRuntimeModel {
+                variables: NameValueList::from(variables),
             },
-            vars: RequestVarsModel {
-                pre_request: KeyValueList::from(variables),
-                ..Default::default()
-            },
+            ..Default::default()
         };
 
         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
@@ -999,18 +1305,18 @@ mod tests {
         let variables = [("token", token)];
 
         let request = RequestModel {
-            http: HttpRequestModel {
+            http: Some(HttpRequestModel {
                 method: HttpMethod::Get,
                 url: test_server.base_url,
-                auth: Some(HttpAuth::Bearer(HttpBearerToken {
+                auth: HttpAuth::Bearer(HttpBearerToken {
                     token: "{{token}}".to_string(),
-                })),
+                }),
                 ..Default::default()
+            }),
+            runtime: RequestRuntimeModel {
+                variables: NameValueList::from(variables),
             },
-            vars: RequestVarsModel {
-                pre_request: KeyValueList::from(variables),
-                ..Default::default()
-            },
+            ..Default::default()
         };
 
         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
@@ -1033,16 +1339,16 @@ mod tests {
         let variables = [("header_name", header_name), ("header_value", header_value)];
 
         let request = RequestModel {
-            http: HttpRequestModel {
+            http: Some(HttpRequestModel {
                 method: HttpMethod::Get,
                 url: test_server.base_url,
-                headers: KeyValueList::from([("{{header_name}}", "{{header_value}}")]),
+                headers: NameValueList::from([("{{header_name}}", "{{header_value}}")]),
                 ..Default::default()
+            }),
+            runtime: RequestRuntimeModel {
+                variables: NameValueList::from(variables),
             },
-            vars: RequestVarsModel {
-                pre_request: KeyValueList::from(variables),
-                ..Default::default()
-            },
+            ..Default::default()
         };
 
         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
@@ -1065,18 +1371,18 @@ mod tests {
         let variables = [("key", key), ("value", value)];
 
         let request = RequestModel {
-            http: HttpRequestModel {
+            http: Some(HttpRequestModel {
                 method: HttpMethod::Get,
                 url: test_server.base_url,
                 body: Some(HttpBody::Text(HttpTextBody {
-                    text: "{{key}} / {{value}}".to_string(),
+                    data: "{{key}} / {{value}}".to_string(),
                 })),
                 ..Default::default()
+            }),
+            runtime: RequestRuntimeModel {
+                variables: NameValueList::from(variables),
             },
-            vars: RequestVarsModel {
-                pre_request: KeyValueList::from(variables),
-                ..Default::default()
-            },
+            ..Default::default()
         };
 
         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
@@ -1099,27 +1405,26 @@ mod tests {
             .mount(&test_server.mock)
             .await;
 
-        let body: Value = serde_json::from_str(
-            r#"
-        {
-            "key": "{{key}}",
-            "value": "{{value}}"
-        }
-        "#,
-        )
-        .unwrap();
+        let body = r#"
+            {
+                "key": "{{key}}",
+                "value": "{{value}}"
+            }
+            "#;
 
         let request = RequestModel {
-            http: HttpRequestModel {
+            http: Some(HttpRequestModel {
                 method: HttpMethod::Get,
                 url: test_server.base_url,
-                body: Some(HttpBody::Json(HttpJsonBody { json: body })),
+                body: Some(HttpBody::Json(HttpJsonBody {
+                    data: body.to_string(),
+                })),
                 ..Default::default()
+            }),
+            runtime: RequestRuntimeModel {
+                variables: NameValueList::from(variables),
             },
-            vars: RequestVarsModel {
-                pre_request: KeyValueList::from(variables),
-                ..Default::default()
-            },
+            ..Default::default()
         };
 
         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
@@ -1135,20 +1440,20 @@ mod tests {
         let variables = [("key", key), ("value", value)];
         let expected_body: Value = serde_json::from_str(
             r#"
-            {
-                "query": "query { resolver { some-test-key } }",
-                "variables": {
-                    "some-test-key": "some-test-value",
-                    "number": 123,
-                    "struct": {
-                        "embed": {
-                            "key": "some-test-key",
-                            "value": "some-test-value"
+                {
+                    "query": "query { resolver { some-test-key } }",
+                    "variables": {
+                        "some-test-key": "some-test-value",
+                        "number": 123,
+                        "struct": {
+                            "embed": {
+                                "key": "some-test-key",
+                                "value": "some-test-value"
+                            }
                         }
                     }
                 }
-            }
-        "#,
+            "#,
         )
         .unwrap();
 
@@ -1162,36 +1467,38 @@ mod tests {
         let query = "query { resolver { {{key}} } }";
         let query_vars: HashMap<String, Value> = serde_json::from_str(
             r#"
-        {
-            "{{key}}": "{{value}}",
-            "number": 123,
-            "struct": {
-                "embed": {
-                    "key": "{{key}}",
-                    "value": "{{value}}"
+            {
+                "{{key}}": "{{value}}",
+                "number": 123,
+                "struct": {
+                    "embed": {
+                        "key": "{{key}}",
+                        "value": "{{value}}"
+                    }
                 }
             }
-        }
-        "#,
+            "#,
         )
         .unwrap();
 
         let request = RequestModel {
-            http: HttpRequestModel {
+            info: RequestInfoModel {
+                type_: RequestType::GraphQL,
+                ..Default::default()
+            },
+            graphql: Some(GraphQLRequestModel {
                 method: HttpMethod::Get,
                 url: test_server.base_url,
-                body: Some(HttpBody::GraphQL(HttpGraphQLBody {
-                    graphql: GraphGLBody {
-                        query: query.to_string(),
-                        variables: query_vars,
-                    },
-                })),
+                body: GraphQLBody {
+                    query: query.to_string(),
+                    variables: serde_json::to_string(&query_vars).unwrap(),
+                },
                 ..Default::default()
+            }),
+            runtime: RequestRuntimeModel {
+                variables: NameValueList::from(variables),
             },
-            vars: RequestVarsModel {
-                pre_request: KeyValueList::from(variables),
-                ..Default::default()
-            },
+            ..Default::default()
         };
 
         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
@@ -1213,18 +1520,18 @@ mod tests {
             .await;
 
         let request = RequestModel {
-            http: HttpRequestModel {
+            http: Some(HttpRequestModel {
                 method: HttpMethod::Get,
                 url: test_server.base_url,
                 body: Some(HttpBody::Binary(HttpBinaryBody {
                     binary: "{{data}}".to_string(),
                 })),
                 ..Default::default()
+            }),
+            runtime: RequestRuntimeModel {
+                variables: NameValueList::from(variables),
             },
-            vars: RequestVarsModel {
-                pre_request: KeyValueList::from(variables),
-                ..Default::default()
-            },
+            ..Default::default()
         };
 
         let api_request = ApiClientRequest::new(CollectionModel::default(), request);
@@ -1240,7 +1547,7 @@ mod tests {
         let variables = [("key", key), ("value", value)];
 
         let test_server = spawn_mock_server().await;
-        Mock::given(FormDataMatcher(HashMap::from([(
+        Mock::given(UrlEncodedFormDataMatcher(HashMap::from([(
             key.to_string(),
             value.to_string(),
         )])))
@@ -1249,19 +1556,25 @@ mod tests {
         .mount(&test_server.mock)
         .await;
 
+        let form_values = vec![FormValue {
+            name: "{{key}}".to_string(),
+            value: "{{value}}".to_string(),
+            ..Default::default()
+        }];
+
         let request = RequestModel {
-            http: HttpRequestModel {
+            http: Some(HttpRequestModel {
                 method: HttpMethod::Get,
                 url: test_server.base_url,
-                body: Some(HttpBody::Form(HttpFormBody {
-                    form: KeyValueList::from([("{{key}}", "{{value}}")]),
+                body: Some(HttpBody::FormUrlEncoded(HttpFormBody {
+                    data: FormValueList::new(form_values),
                 })),
                 ..Default::default()
+            }),
+            runtime: RequestRuntimeModel {
+                variables: NameValueList::from(variables),
             },
-            vars: RequestVarsModel {
-                pre_request: KeyValueList::from(variables),
-                ..Default::default()
-            },
+            ..Default::default()
         };
 
         let api_request = ApiClientRequest::new(CollectionModel::default(), request);

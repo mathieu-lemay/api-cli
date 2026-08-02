@@ -17,7 +17,7 @@ name = "api-cli"
 test = false
 
 [dependencies]
-ansi-str = "0.9.0"
+async-trait = "0.1.91"
 base64 = "0.22.1"
 clap = { version = "4.5.7", features = ["derive"] }
 clap_complete = "4.5.7"
@@ -31,7 +31,7 @@ log = "0.4.21"
 once_cell = "1.19.0"
 owo-colors = { version = "4.0.0", features = ["supports-colors"] }
 # Disabling default features because native-tls uses aws-lc-sys, and that don't build for some reason
-reqwest = { version = "0.13.3", default-features = false, features = ["charset", "http2", "system-proxy", "json", "native-tls", "form", "query"] }
+reqwest = { version = "0.13.3", default-features = false, features = ["charset", "http2", "system-proxy", "json", "native-tls", "form", "query", "multipart", "stream"] }
 serde = { version = "1.0.203", features = ["derive"] }
 serde_json = "1.0.118"
 serde_yaml = "0.9.34"
